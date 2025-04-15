@@ -1,6 +1,6 @@
 package result
 
-import "github.com/jjudge/worker/internal/resource"
+import "github.com/jjudge/worker/pkg/resource"
 
 type Result struct {
 	Verdict  string

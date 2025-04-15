@@ -2,7 +2,7 @@ package handler
 
 import (
 	"github.com/jjudge/worker/internal/config"
-	"github.com/jjudge/worker/internal/result"
+	"github.com/jjudge/worker/pkg/result"
 )
 
 // The handler package is responsible for handling the execution of code submissions.

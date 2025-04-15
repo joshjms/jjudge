@@ -7,8 +7,8 @@ import (
 	"github.com/jjudge/worker/internal/config"
 	"github.com/jjudge/worker/internal/executor"
 	"github.com/jjudge/worker/internal/handler"
-	"github.com/jjudge/worker/internal/resource"
-	"github.com/jjudge/worker/internal/result"
+	"github.com/jjudge/worker/pkg/resource"
+	"github.com/jjudge/worker/pkg/result"
 )
 
 var (

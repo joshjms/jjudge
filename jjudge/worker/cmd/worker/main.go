@@ -7,7 +7,7 @@ import (
 	"github.com/jjudge/worker/internal/config"
 	"github.com/jjudge/worker/internal/handler"
 	"github.com/jjudge/worker/internal/handler/cpp"
-	"github.com/jjudge/worker/internal/result"
+	"github.com/jjudge/worker/pkg/result"
 	"github.com/spf13/pflag"
 )
 
