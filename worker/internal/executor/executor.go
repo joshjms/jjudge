@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/jjudge/worker/internal/resource"
-	"github.com/jjudge/worker/internal/result"
+	"github.com/jjudge/worker/pkg/resource"
+	"github.com/jjudge/worker/pkg/result"
 )
 
 const (
