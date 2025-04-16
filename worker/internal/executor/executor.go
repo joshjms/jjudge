@@ -3,7 +3,6 @@ package executor
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os/exec"
 	"syscall"
 
@@ -81,8 +80,6 @@ func (e *jobExecutor) Run() (result.Result, error) {
 	cmd.Stderr = stderrBuffer
 
 	if err := cmd.Start(); err != nil {
-		log.Println("failed to start command:", err)
-
 		return result.Result{
 			Verdict: result.VerdictRuntimeError,
 			Stderr:  stderrBuffer.String(),
@@ -107,11 +104,9 @@ func (e *jobExecutor) Run() (result.Result, error) {
 		}, nil
 	}
 
-	var rusage syscall.Rusage
-	if err := syscall.Getrusage(syscall.RUSAGE_CHILDREN, &rusage); err != nil {
-		return result.Result{
-			Verdict: result.VerdictInternalError,
-		}, err
+	rusage := cmd.ProcessState.SysUsage().(*syscall.Rusage)
+	if rusage == nil {
+		return result.ResultWithError(result.VerdictInternalError, fmt.Errorf("failed to get resource usage")), fmt.Errorf("failed to get resource usage")
 	}
 
 	return result.Result{
