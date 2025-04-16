@@ -1,0 +1,29 @@
+files:
+  - name: main.cpp
+    content: |
+      #include <iostream>
+      int main() {
+          int a, b;
+          std::cin >> a >> b;
+          std::cout << (a + b) << std::endl;
+          return 0;
+      }
+
+steps:
+  - name: compile
+    cmd: g++ -O2 -std=c++17 -o main main.cpp
+    stdin: ""
+    memory_limit: 512
+    time_limit: 2
+    max_processes: 10
+    uid: 65534
+    gid: 65534
+
+  - name: execute
+    cmd: ./main
+    stdin: "2 3"
+    memory_limit: 256
+    time_limit: 1
+    max_processes: 1
+    uid: 65534
+    gid: 65534
