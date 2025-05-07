@@ -1,0 +1,11 @@
+[Unit]
+Description=A trivial daemon to keep jjudge's control group hierarchy. From Isolate's implementation.
+
+[Service]
+Type=notify
+ExecStart=/usr/local/sbin/cg-keeper
+Slice=jjudge.slice
+Delegate=true
+
+[Install]
+WantedBy=multi-user.target
