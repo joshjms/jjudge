@@ -10,12 +10,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/containerd/cgroups/v3/cgroup2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
 const (
-	SANDBOX_ROOT = "/var/lib/sandbox"
-	CGROUP_PATH  = "/sys/fs/cgroup/jjudge.slice"
+	SandboxRoot = "/var/lib/sandbox"
+	CgroupRoot  = "/sys/fs/cgroup/jjudge.slice/"
 )
 
 // Sandbox represents a sandbox environment for running isolated processes.
@@ -95,12 +96,11 @@ type SandboxSpec struct {
 
 // Result defines the result of running a command in a container.
 type Result struct {
-	Stdout []byte
-	Stderr []byte
+	Stdout string
+	Stderr string
 
-	MemoryPeak int64
-	CpuUser    int64
-	CpuSystem  int64
+	MemoryPeakBytes uint64
+	CpuUsageUsec    uint64
 }
 
 func (s *Sandbox) GenerateOCISpec() (specs.Spec, error) {
@@ -176,13 +176,14 @@ func (s *Sandbox) GenerateOCISpec() (specs.Spec, error) {
 			},
 		},
 		Linux: &specs.Linux{
-			CgroupsPath: fmt.Sprintf("/jjudge.slice/%s", s.id),
+			CgroupsPath: fmt.Sprintf("/jjudge.slice/%s.scope", s.id),
 			Resources: &specs.LinuxResources{
 				Memory: &specs.LinuxMemory{Limit: &memBytes, Swap: &memBytes},
 				CPU: &specs.LinuxCPU{
 					Quota:  &cpuQuotaMicros,
 					Period: &cpuPeriod,
 				},
+				Network: nil,
 			},
 			UIDMappings: []specs.LinuxIDMapping{
 				{
@@ -229,7 +230,6 @@ func (s *Sandbox) GenerateOCISpec() (specs.Spec, error) {
 }
 
 func (s *Sandbox) Run() (*Result, error) {
-	// Write the OCI spec to <BundlePath>/config.json
 	spec, err := s.GenerateOCISpec()
 	if err != nil {
 		return nil, fmt.Errorf("error generating oci spec: %w", err)
@@ -248,30 +248,37 @@ func (s *Sandbox) Run() (*Result, error) {
 		return nil, fmt.Errorf("error preparing rootfs: %w", err)
 	}
 
-	cgroupPath := filepath.Join(CGROUP_PATH, s.id)
-	if err := os.Mkdir(cgroupPath, 0644); err != nil {
-		return nil, fmt.Errorf("error preparing cgroup: %w", err)
-	}
-	defer os.RemoveAll(cgroupPath)
-
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command("runc", "run", "--bundle", s.bundlePath, "--keep", s.id)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
-	defer func() {
-		exec.Command("runc", "delete", s.id).Run()
-	}()
+	// defer func() {
+	// 	exec.Command("runc", "delete", s.id).Run()
+	// }()
 	if err != nil {
-		fmt.Println(stdout.String())
-		fmt.Println(stderr.String())
 		return nil, fmt.Errorf("error runc run: %w", err)
 	}
 
+	m, err := cgroup2.LoadSystemd("jjudge.slice", fmt.Sprintf("%s.scope", s.id))
+	if err != nil {
+		return nil, fmt.Errorf("cannot load cgroup: %w", err)
+	}
+
+	metrics, err := m.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("cannot get cgroup metrics: %w", err)
+	}
+
+	memPeak := metrics.GetMemory().GetMaxUsage()
+	cpuUsage := metrics.GetCPU().GetUsageUsec()
+
 	res := &Result{
-		Stdout: stdout.Bytes(),
-		Stderr: stderr.Bytes(),
+		Stdout:          stdout.String(),
+		Stderr:          stderr.String(),
+		MemoryPeakBytes: memPeak,
+		CpuUsageUsec:    cpuUsage,
 	}
 
 	return res, nil
@@ -286,7 +293,7 @@ func prepareRootfs(bundlePath string) error {
 		}
 	}
 
-	lowerImage := filepath.Join(SANDBOX_ROOT, "lower", "rootfs", "box")
+	lowerImage := filepath.Join(SandboxRoot, "lower", "rootfs", "box")
 
 	upperDir := filepath.Join(bundlePath, "upper")
 	workDir := filepath.Join(bundlePath, "work")
