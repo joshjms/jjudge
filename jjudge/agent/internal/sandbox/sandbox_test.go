@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,10 +9,8 @@ import (
 
 func TestSandboxWorkdir(t *testing.T) {
 	spec := SandboxSpec{
-		Rootfs:             "/var/lib/sandbox/images/rootfs",
-		BoxDir:             "./box",
 		WorkingDir:         "/box",
-		Args:               []string{"pwd"},
+		Args:               []string{"sh", "-c", "ls -l / && id"},
 		Env:                []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
 		HostUID:            65536,
 		HostGID:            65536,
@@ -23,7 +20,7 @@ func TestSandboxWorkdir(t *testing.T) {
 		SeccompProfilePath: "",
 	}
 
-	sandbox, err := NewSandbox("test-sandbox", spec, "/var/lib/sandbox/jobs/test-sandbox")
+	sandbox, err := NewSandbox("test-sandbox", spec, "/var/lib/sandbox/images/ubuntu")
 	if err != nil {
 		t.Fatalf("Failed to create sandbox: %v", err)
 	}
@@ -45,8 +42,6 @@ func TestSandboxWorkdir(t *testing.T) {
 
 func TestSandboxCreateFile(t *testing.T) {
 	spec := SandboxSpec{
-		Rootfs:             "/var/lib/sandbox/images/rootfs",
-		BoxDir:             "./box",
 		WorkingDir:         "/box",
 		Args:               []string{"sh", "-c", "echo 'i love her' > hello.txt"},
 		Env:                []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
@@ -58,7 +53,11 @@ func TestSandboxCreateFile(t *testing.T) {
 		SeccompProfilePath: "",
 	}
 
-	sandbox, err := NewSandbox("test-sandbox", spec, "/var/lib/sandbox/jobs/test-sandbox")
+	sandbox, err := NewSandbox(
+		"test-sandbox",
+		spec,
+		"/var/lib/sandbox/images/ubuntu",
+	)
 	if err != nil {
 		t.Fatalf("Failed to create sandbox: %v", err)
 	}
@@ -69,7 +68,7 @@ func TestSandboxCreateFile(t *testing.T) {
 	}
 
 	bundlePath := "/var/lib/sandbox/jobs/test-sandbox/"
-	b, err := os.ReadFile(filepath.Join(bundlePath, "upper", "hello.txt"))
+	b, err := os.ReadFile(filepath.Join(bundlePath, "upper", "box", "hello.txt"))
 	if err != nil {
 		t.Fatalf("File not created: %v", err)
 	}
@@ -83,13 +82,11 @@ func TestSandboxMultipleSandboxes(t *testing.T) {
 	containerIds := []string{"sandbox-01", "sandbox-02", "sandbox-03"}
 
 	spec := SandboxSpec{
-		Rootfs:             "/var/lib/sandbox/images/rootfs",
-		BoxDir:             "./box",
 		WorkingDir:         "/box",
 		Args:               []string{"sleep", "10"},
 		Env:                []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
-		HostUID:            65536,
-		HostGID:            65536,
+		HostUID:            100000,
+		HostGID:            100000,
 		MemoryLimitMB:      512,
 		CPUQuotaMillis:     1000,
 		Timeout:            30,
@@ -100,7 +97,7 @@ func TestSandboxMultipleSandboxes(t *testing.T) {
 
 	for _, id := range containerIds {
 		go func() {
-			sandbox, err := NewSandbox(id, spec, fmt.Sprintf("/var/lib/sandbox/jobs/%s", id))
+			sandbox, err := NewSandbox(id, spec, "/var/lib/sandbox/images/ubuntu")
 			if err != nil {
 				ch <- err
 			}
