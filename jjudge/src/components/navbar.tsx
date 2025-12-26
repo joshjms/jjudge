@@ -33,6 +33,10 @@ const navLinks: NavLink[] = [
 		href: "/submissions",
 		label: "Submissions",
 	},
+	{
+		href: "/admin/problems",
+		label: "Admin",
+	},
 ];
 
 const desktopLinkStyles =
