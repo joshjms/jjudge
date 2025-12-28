@@ -194,3 +194,77 @@
 .katex {
   font-size: 1em;
 }
+
+/* Starry Night (GitHub-like) token colors */
+.starry-code code {
+  font-family: var(--font-mono);
+}
+.pl-c {
+  color: #6e7781;
+}
+.pl-k {
+  color: #cf222e;
+}
+.pl-s,
+.pl-s1,
+.pl-s2,
+.pl-pds {
+  color: #0a3069;
+}
+.pl-c1,
+.pl-ent,
+.pl-v {
+  color: #953800;
+}
+.pl-en {
+  color: #116329;
+}
+.pl-bu {
+  color: #7d4e00;
+}
+.pl-ii {
+  color: #f6f8fa;
+  background: #82071e;
+}
+.pl-cd {
+  color: #82071e;
+  background: #ffebe9;
+}
+.pl-md {
+  color: #82071e;
+  background: #ffebe9;
+}
+.pl-mi {
+  color: #57606a;
+  font-style: italic;
+}
+.pl-mb {
+  color: #57606a;
+  font-weight: 600;
+}
+.pl-ms {
+  color: #0550ae;
+}
+.pl-mi1 {
+  color: #116329;
+  background: #dafbe1;
+}
+.pl-mdr {
+  color: #8250df;
+  font-weight: 600;
+}
+.pl-ba {
+  color: #1b7c83;
+}
+.pl-sr {
+  color: #b35900;
+}
+.pl-vo {
+  color: #953800;
+}
+.pl-vpf {
+  color: #1b7c83;
+}
+.pl-vp {
+  color: #0a3069;
+}

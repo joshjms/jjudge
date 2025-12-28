@@ -26,19 +26,6 @@ type NavLink = {
 	description?: string;
 };
 
-const navLinks: NavLink[] = [
-	{ href: "/problems", label: "Problems"},
-	{ href: "/contests", label: "Contests"},
-	{
-		href: "/submissions",
-		label: "Submissions",
-	},
-	{
-		href: "/admin/problems",
-		label: "Admin",
-	},
-];
-
 const desktopLinkStyles =
 	"inline-flex h-10 items-center px-4 text-sm font-semibold text-muted-foreground transition-colors duration-150 hover:text-primary data-[active=true]:text-foreground";
 
@@ -47,10 +34,23 @@ export function Navbar(props: ComponentProps<"header">) {
 	const isAuthed = Boolean(auth.token);
 	const displayName = auth.user?.name || auth.user?.email || "Account";
 	const displayEmail = auth.user?.email;
+	const isAdmin = auth.user?.role?.toLowerCase?.() === "admin";
 	const initial = useMemo(
 		() => (auth.user?.name || auth.user?.email || "?").slice(0, 1).toUpperCase(),
 		[auth.user?.email, auth.user?.name],
 	);
+
+	const navLinks: NavLink[] = useMemo(() => {
+		const base: NavLink[] = [
+			{ href: "/problems", label: "Problems" },
+			{ href: "/contests", label: "Contests" },
+			{ href: "/submissions", label: "Submissions" },
+		];
+		if (isAdmin) {
+			base.push({ href: "/admin/problems", label: "Admin" });
+		}
+		return base;
+	}, [isAdmin]);
 
 	const handleLogout = () => {
 		clearAuth();

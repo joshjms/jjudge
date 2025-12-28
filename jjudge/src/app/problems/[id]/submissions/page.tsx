@@ -7,6 +7,7 @@ type Submission = {
 	id: number;
 	problem_id: number;
 	user_id?: number;
+	username?: string;
 	language?: string;
 	verdict?: string;
 	score?: number;
@@ -132,6 +133,7 @@ export default async function ProblemSubmissionsPage({ params }: { params: Promi
 								<thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
 									<tr>
 										<th className="px-4 py-3 text-left font-semibold">ID</th>
+										<th className="px-4 py-3 text-left font-semibold">User</th>
 										<th className="px-4 py-3 text-left font-semibold">Verdict</th>
 										<th className="px-4 py-3 text-left font-semibold">Score</th>
 										<th className="px-4 py-3 text-left font-semibold">Tests</th>
@@ -139,6 +141,7 @@ export default async function ProblemSubmissionsPage({ params }: { params: Promi
 										<th className="px-4 py-3 text-left font-semibold">Memory</th>
 										<th className="px-4 py-3 text-left font-semibold">Language</th>
 										<th className="px-4 py-3 text-left font-semibold">Submitted at</th>
+										<th className="px-4 py-3 text-left font-semibold">Details</th>
 									</tr>
 								</thead>
 								<tbody className="divide-y divide-border/70">
@@ -151,6 +154,9 @@ export default async function ProblemSubmissionsPage({ params }: { params: Promi
 											<tr key={submission.id} className="hover:bg-muted/40">
 												<td className="px-4 py-3 font-semibold text-muted-foreground">
 													#{submission.id}
+												</td>
+												<td className="px-4 py-3 text-foreground">
+													{submission.username ?? (submission.user_id ? `User #${submission.user_id}` : "—")}
 												</td>
 												<td className="px-4 py-3">
 													<span
@@ -181,6 +187,14 @@ export default async function ProblemSubmissionsPage({ params }: { params: Promi
 												</td>
 												<td className="px-4 py-3 text-muted-foreground">
 													{formatDate(submission.created_at)}
+												</td>
+												<td className="px-4 py-3">
+													<Link
+														href={`/submissions/${submission.id}`}
+														className="border border-border/70 px-3 py-1 text-xs font-semibold transition hover:border-primary/60 hover:bg-muted/60"
+													>
+														View
+													</Link>
 												</td>
 											</tr>
 										);

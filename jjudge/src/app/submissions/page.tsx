@@ -1,16 +1,12 @@
-"use client";
-
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 
 type Submission = {
 	id: number;
 	problem_id: number;
 	user_id?: number;
+	username?: string;
 	language?: string;
 	verdict?: string;
 	score?: number;
@@ -20,11 +16,6 @@ type Submission = {
 	tests_passed?: number;
 	tests_total?: number;
 	created_at?: string;
-};
-
-type Problem = {
-	id: number;
-	title?: string;
 };
 
 const verdictStyles: Record<string, string> = {
@@ -62,71 +53,18 @@ const formatDate = (value?: string) => {
 	}).format(new Date(value));
 };
 
-const decodeUserIdFromToken = (token?: string | null) => {
-	if (!token) return null;
-	const [, payload] = token.split(".");
-	if (!payload) return null;
+export const dynamic = "force-dynamic";
 
+async function fetchSubmissions() {
 	try {
-		const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-		const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-		const decoded = atob(padded);
-		const parsed = JSON.parse(decoded);
-		const rawId = parsed?.user_id ?? parsed?.sub ?? parsed?.id;
-
-		if (typeof rawId === "number") return rawId;
-		if (typeof rawId === "string") {
-			const numeric = Number(rawId);
-			return Number.isFinite(numeric) ? numeric : null;
-		}
-		return null;
+		return await api.get<Submission[]>("/submissions", { cache: "no-store" });
 	} catch {
 		return null;
 	}
-};
+}
 
-export default function MyProblemSubmissionsPage() {
-	const params = useParams<{ id: string }>();
-	const auth = useAuth();
-	const userId = useMemo(() => decodeUserIdFromToken(auth.token), [auth.token]);
-	const [problem, setProblem] = useState<Problem | null>(null);
-	const [submissions, setSubmissions] = useState<Submission[] | null>(null);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		const load = async () => {
-			const problemId = params?.id;
-			if (!problemId) return;
-
-			if (!auth.token || !userId) {
-				setError("Please sign in to view your submissions.");
-				setLoading(false);
-				return;
-			}
-
-			try {
-				const [problemResponse, submissionsResponse] = await Promise.all([
-					api.get<Problem>(`/problems/${problemId}`, { cache: "no-store" }),
-					api.get<Submission[]>("/submissions", {
-						query: { problem_id: problemId, user_id: userId },
-						headers: { Authorization: `Bearer ${auth.token}` },
-						cache: "no-store",
-					}),
-				]);
-
-				setProblem(problemResponse ?? null);
-				setSubmissions(submissionsResponse ?? []);
-				setError(null);
-			} catch {
-				setError("Failed to load your submissions for this problem.");
-			} finally {
-				setLoading(false);
-			}
-		};
-
-		load();
-	}, [auth.token, params?.id, userId]);
+export default async function SubmissionsPage() {
+	const submissions = await fetchSubmissions();
 
 	const sortedSubmissions =
 		submissions?.slice().sort((a, b) => {
@@ -135,46 +73,26 @@ export default function MyProblemSubmissionsPage() {
 			return timeB - timeA;
 		}) ?? [];
 
-	const headingTitle = problem
-		? `${problem.title ?? "Untitled problem"} · Your submissions`
-		: "Your submissions";
-
 	return (
-		<div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-12 sm:px-6">
+		<div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-12 sm:px-6">
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 				<div className="space-y-2">
-					<p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary">
-						Problem {params?.id}
-					</p>
-					<h1 className="text-3xl font-bold leading-tight sm:text-4xl">{headingTitle}</h1>
-					<p className="text-sm text-muted-foreground">Only your submissions for this problem.</p>
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<Link
-						href={`/problems/${params?.id}`}
-						className="border border-border/70 px-3 py-2 text-sm font-semibold text-foreground transition hover:border-primary/60 hover:bg-muted/60"
-					>
-						View problem
-					</Link>
+					<p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary">Submissions</p>
+					<h1 className="text-3xl font-bold leading-tight sm:text-4xl">All submissions</h1>
+					<p className="text-sm text-muted-foreground">Latest submissions across all problems.</p>
 				</div>
 			</div>
 
-			{loading ? (
-				<div className="border border-border/70 bg-card/70 px-6 py-10 text-center text-sm text-muted-foreground">
-					Loading your submissions...
-				</div>
-			) : error ? (
-				<div className="border border-destructive/50 bg-destructive/10 px-6 py-10 text-center text-sm text-destructive">
-					{error}
-				</div>
-			) : (
-				<div className="overflow-hidden border border-border/70 bg-card/70">
-					{sortedSubmissions.length > 0 ? (
+			<div className="overflow-hidden border border-border/70 bg-card/70">
+				{submissions ? (
+					sortedSubmissions.length > 0 ? (
 						<div className="overflow-x-auto">
 							<table className="min-w-full divide-y divide-border/70 text-sm">
 								<thead className="bg-muted/70 text-xs uppercase tracking-wide text-muted-foreground">
 									<tr>
 										<th className="px-4 py-3 text-left font-semibold">ID</th>
+										<th className="px-4 py-3 text-left font-semibold">User</th>
+										<th className="px-4 py-3 text-left font-semibold">Problem</th>
 										<th className="px-4 py-3 text-left font-semibold">Verdict</th>
 										<th className="px-4 py-3 text-left font-semibold">Score</th>
 										<th className="px-4 py-3 text-left font-semibold">Tests</th>
@@ -195,6 +113,17 @@ export default function MyProblemSubmissionsPage() {
 											<tr key={submission.id} className="hover:bg-muted/40">
 												<td className="px-4 py-3 font-semibold text-muted-foreground">
 													#{submission.id}
+												</td>
+												<td className="px-4 py-3 text-foreground">
+													{submission.username ?? (submission.user_id ? `User #${submission.user_id}` : "—")}
+												</td>
+												<td className="px-4 py-3 text-muted-foreground">
+													<Link
+														href={`/problems/${submission.problem_id}`}
+														className="border border-border/70 px-2 py-1 text-xs font-semibold transition hover:border-primary/60 hover:bg-muted/60"
+													>
+														Problem {submission.problem_id}
+													</Link>
 												</td>
 												<td className="px-4 py-3">
 													<span
@@ -229,7 +158,7 @@ export default function MyProblemSubmissionsPage() {
 												<td className="px-4 py-3">
 													<Link
 														href={`/submissions/${submission.id}`}
-														className="rounded-md border border-border/70 px-3 py-1 text-xs font-semibold text-foreground transition hover:border-primary/60 hover:bg-muted/60"
+														className="border border-border/70 px-3 py-1 text-xs font-semibold transition hover:border-primary/60 hover:bg-muted/60"
 													>
 														View
 													</Link>
@@ -242,11 +171,15 @@ export default function MyProblemSubmissionsPage() {
 						</div>
 					) : (
 						<div className="px-6 py-10 text-center text-sm text-muted-foreground">
-							No submissions yet for this problem.
+							No submissions yet.
 						</div>
-					)}
-				</div>
-			)}
+					)
+				) : (
+					<div className="px-6 py-10 text-center text-sm text-destructive">
+						Failed to load submissions.
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

@@ -10,7 +10,7 @@ import { setAuth } from "@/lib/auth";
 
 type LoginResponse = {
 	token?: string;
-	user?: { name?: string; email?: string };
+	user?: { name?: string; email?: string; username?: string; role?: string | null };
 };
 
 function LoginForm() {
@@ -31,7 +31,13 @@ function LoginForm() {
 		try {
 			const response = await api.post<LoginResponse>("/auth/login", { email, password });
 			const token = response?.token ?? "dev-token";
-			const user = response?.user ?? { name: email.split("@")[0], email };
+			const user =
+				response?.user ??
+				{
+					name: email.split("@")[0],
+					email,
+					username: email.split("@")[0],
+				};
 			setAuth({ token, user });
 			const redirectTo =
 				searchParams.get("redirect") ?? searchParams.get("returnTo") ?? searchParams.get("from");

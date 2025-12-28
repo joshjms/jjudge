@@ -4,7 +4,12 @@ import { useSyncExternalStore } from "react";
 
 type StoredAuth = {
 	token: string | null;
-	user?: { name?: string | null; email?: string | null } | null;
+	user?: {
+		name?: string | null;
+		email?: string | null;
+		username?: string | null;
+		role?: string | null;
+	} | null;
 };
 
 const STORAGE_KEY = "jj_auth_state";

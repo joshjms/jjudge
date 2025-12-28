@@ -122,17 +122,17 @@ export function SubmissionForm({ problemId }: SubmissionFormProps) {
                         foldGutter: true,
                     }}
                     placeholder="Write your solution here..."
-                    className="rounded-xl border border-border/70 bg-card/70"
+                    className="border border-border/70 bg-card/70"
                 />
             </div>
 
             {error && (
-                <p className="mt-4 rounded-xl border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <p className="mt-4 border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                     {error}
                 </p>
             )}
             {success && (
-                <p className="mt-4 rounded-xl border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+                <p className="mt-4 border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
                     Submission created successfully.
                 </p>
             )}
