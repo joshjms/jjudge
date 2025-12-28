@@ -84,7 +84,7 @@ export default function RegisterPage() {
 							type="text"
 							required
 							className="w-full border border-border/70 bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/30"
-							placeholder="adalovelace"
+							placeholder="zipongster"
 							value={username}
 							onChange={(e) => setUsername(e.target.value)}
 						/>
@@ -99,7 +99,7 @@ export default function RegisterPage() {
 							name="name"
 							type="text"
 							className="w-full border border-border/70 bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/30"
-							placeholder="Ada Lovelace"
+							placeholder="Yong Zi Hong"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 						/>
