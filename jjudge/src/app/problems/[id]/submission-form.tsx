@@ -3,13 +3,14 @@
 import { cpp } from "@codemirror/lang-cpp";
 import { python } from "@codemirror/lang-python";
 import { indentUnit } from "@codemirror/language";
-import { vscodeLight } from "@uiw/codemirror-theme-vscode";
+import { vscodeDark, vscodeLight } from "@uiw/codemirror-theme-vscode";
 import CodeMirror from "@uiw/react-codemirror";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useTheme } from "@/components/theme-provider";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -38,6 +39,7 @@ const getExtensions = (language: string) => {
 export function SubmissionForm({ problemId }: SubmissionFormProps) {
     const auth = useAuth();
     const router = useRouter();
+    const { theme } = useTheme();
     const [language, setLanguage] = useState(languages[0].value);
     const [code, setCode] = useState<string>("");
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -114,7 +116,7 @@ export function SubmissionForm({ problemId }: SubmissionFormProps) {
                     value={code}
                     extensions={extensions}
                     onChange={(value) => setCode(value)}
-                    theme={vscodeLight}
+                    theme={theme === "dark" ? vscodeDark : vscodeLight}
                     height="320px"
                     basicSetup={{
                         lineNumbers: true,

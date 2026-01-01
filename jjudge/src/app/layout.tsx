@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Source_Code_Pro } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import Navbar from "@/components/navbar";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const sourceCodeProSans = Source_Code_Pro({
   variable: "--font-geist-sans",
@@ -23,16 +25,31 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return (
-    <html lang="en">
-      <body
-        className={`${sourceCodeProSans.variable} ${sourceCodeProMono.variable} antialiased`}
-      >
-        <div className="flex min-h-screen flex-col bg-background">
-          <Navbar />
-          <main className="flex-1">{children}</main>
-        </div>
-      </body>
-    </html>
-  );
+	const themeScript = `
+	(() => {
+		const storageKey = "theme";
+		const stored = window.localStorage.getItem(storageKey);
+		const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+		const theme = stored === "light" || stored === "dark" ? stored : prefersDark ? "dark" : "light";
+		const root = document.documentElement;
+		root.classList.toggle("dark", theme === "dark");
+		root.style.colorScheme = theme;
+	})();
+	`;
+
+	return (
+		<html lang="en" suppressHydrationWarning>
+			<body
+				className={`${sourceCodeProSans.variable} ${sourceCodeProMono.variable} antialiased`}
+			>
+				<Script id="theme-script" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
+				<ThemeProvider>
+					<div className="flex min-h-screen flex-col bg-background">
+						<Navbar />
+						<main className="flex-1">{children}</main>
+					</div>
+				</ThemeProvider>
+			</body>
+		</html>
+	);
 }

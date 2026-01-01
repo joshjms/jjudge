@@ -5,6 +5,7 @@ import { ComponentProps, useMemo } from "react";
 import { Menu } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/components/theme-toggle";
 import {
 	NavigationMenu,
 	NavigationMenuItem,
@@ -139,11 +140,11 @@ export function Navbar(props: ComponentProps<"header">) {
 										</Link>
 									</SheetClose>
 								))}
-								<div className="flex flex-col gap-3 border-t border-border/50 pt-6">
-									{isAuthed ? (
-										<>
-											<div className="flex items-center gap-3 rounded-xl border border-border/70 bg-muted/60 px-3 py-2">
-												<span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold uppercase text-primary">
+						<div className="flex flex-col gap-3 border-t border-border/50 pt-6">
+							{isAuthed ? (
+								<>
+									<div className="flex items-center gap-3 rounded-xl border border-border/70 bg-muted/60 px-3 py-2">
+										<span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold uppercase text-primary">
 													{initial}
 												</span>
 												<div className="leading-tight">
@@ -179,6 +180,12 @@ export function Navbar(props: ComponentProps<"header">) {
 							</div>
 						</SheetContent>
 					</Sheet>
+				</div>
+				<div className="hidden md:flex">
+					<ThemeToggle />
+				</div>
+				<div className="md:hidden">
+					<ThemeToggle />
 				</div>
 			</div>
 		</header>
