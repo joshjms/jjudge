@@ -92,7 +92,7 @@ export default function RegisterPage() {
 
 					<div className="space-y-2">
 						<label className="text-sm font-semibold text-foreground" htmlFor="name">
-							Name (optional)
+							Name
 						</label>
 						<input
 							id="name"
