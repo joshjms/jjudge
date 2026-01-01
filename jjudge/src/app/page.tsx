@@ -1,16 +1,6 @@
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import {
-	ArrowRight,
-	Clock9,
-	Code2,
-	ShieldCheck,
-	Target,
-	Trophy,
-	Users,
-} from "lucide-react";
 
 type Problem = {
 	id?: string;
@@ -34,7 +24,10 @@ export default async function Home() {
 	return (
 		<>
 		<section className="px-24 py-10 md:py-16 lg:py-24 mx-auto max-w-6xl">
-			<p>No Announcements...</p>
+			<h1 className="text-4xl font-bold mb-10">Welcome to JJudge</h1>
+			<p>Hi, I&apos;m Josh. I made this as a hobby project / final year project. If you have any suggestions, feel free to email me at <Link href="mailto:joshjms1607@gmail.com" className="underline">joshjms1607@gmail.com</Link>.</p>
+			<br />
+			<p>Without further ado, have fun with these <Link href="/problems" className="underline">problems</Link>?</p>
 		</section>
 		</>
 	);
