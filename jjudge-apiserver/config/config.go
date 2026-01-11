@@ -18,6 +18,7 @@ type DatabaseConfig struct {
 	User     string
 	Password string
 	DBName   string
+	UseSSL   bool
 }
 
 func LoadConfig() Config {
@@ -31,6 +32,7 @@ func LoadConfig() Config {
 		User:     getEnv("DB_USER", "jjudge"),
 		Password: getEnv("DB_PASSWORD", "password"),
 		DBName:   getEnv("DB_NAME", "jjudge_db"),
+		UseSSL:   getEnv("DB_USE_SSL", "false") == "true",
 	}
 
 	return Config{
