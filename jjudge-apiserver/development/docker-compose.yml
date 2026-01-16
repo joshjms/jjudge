@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jjudge-postgres
+    environment:
+      POSTGRES_USER: jjudge
+      POSTGRES_PASSWORD: jjudge
+      POSTGRES_DB: jjudge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jjudge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jjudge
+
+  minio:
+    image: minio/minio:latest
+    container_name: jjudge-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - jjudge
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: jjudge-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: jjudge
+      RABBITMQ_DEFAULT_PASS: jjudge
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - jjudge
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  castletown-work:
+    driver: local
+  castletown-overlay:
+    driver: local
+  castletown-storage:
+    driver: local
+  castletown-libcontainer:
+    driver: local
+  castletown-rootfs:
+    driver: local
+  castletown-blobs:
+    driver: local
+  castletown-images:
+    driver: local
+  castletown-problems:
+    driver: local
+  castletown-testcases:
+    driver: local
+  castletown-submissions:
+    driver: local
+
+networks:
+  jjudge:
+    driver: bridge

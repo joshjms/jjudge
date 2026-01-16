@@ -5,7 +5,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
+	"github.com/jjudge-oj/apiserver/config"
+	"github.com/jjudge-oj/apiserver/internal/server"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +21,17 @@ var serverCmd = &cobra.Command{
 	jjudge server
 `,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("server called")
+		cfg := config.LoadConfig()
+
+		srv, err := server.New(cmd.Context(), cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to start server: %v\n", err)
+			os.Exit(1)
+		}
+		if err := srv.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 

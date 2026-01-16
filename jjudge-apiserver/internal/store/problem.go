@@ -34,9 +34,28 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 	}
 
 	const listQuery = `
-		SELECT id, title, description, difficulty, time_limit, memory_limit, tags, testcase_bundle, created_at, updated_at
-		FROM problems
-		ORDER BY id
+		SELECT p.id,
+			p.title,
+			p.description,
+			p.difficulty,
+			p.time_limit,
+			p.memory_limit,
+			p.tags,
+			p.testcase_bundle,
+			p.created_at,
+			p.updated_at,
+			tb.object_key,
+			tb.sha256,
+			tb.version
+		FROM problems p
+		LEFT JOIN LATERAL (
+			SELECT object_key, sha256, version
+			FROM testcase_bundles
+			WHERE problem_id = p.id
+			ORDER BY version DESC
+			LIMIT 1
+		) tb ON true
+		ORDER BY p.id
 		OFFSET $1 LIMIT $2`
 	rows, err := r.db.QueryContext(ctx, listQuery, offset, limit)
 	if err != nil {
@@ -48,6 +67,8 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 	for rows.Next() {
 		var problem types.Problem
 		var tagsJSON, bundleJSON []byte
+		var objectKey, sha256 sql.NullString
+		var version sql.NullInt64
 		if err := rows.Scan(
 			&problem.ID,
 			&problem.Title,
@@ -59,12 +80,23 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 			&bundleJSON,
 			&problem.CreatedAt,
 			&problem.UpdatedAt,
+			&objectKey,
+			&sha256,
+			&version,
 		); err != nil {
 			return nil, 0, err
 		}
 
 		_ = json.Unmarshal(tagsJSON, &problem.Tags)
-		_ = json.Unmarshal(bundleJSON, &problem.TestcaseBundle)
+		if objectKey.Valid && sha256.Valid && version.Valid {
+			problem.TestcaseBundle = types.TestcaseBundle{
+				ObjectKey: objectKey.String,
+				SHA256:    sha256.String,
+				Version:   int(version.Int64),
+			}
+		} else {
+			_ = json.Unmarshal(bundleJSON, &problem.TestcaseBundle)
+		}
 		problems = append(problems, problem)
 	}
 
@@ -77,11 +109,32 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 
 func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, error) {
 	const query = `
-		SELECT id, title, description, difficulty, time_limit, memory_limit, tags, testcase_bundle, created_at, updated_at
-		FROM problems
-		WHERE id = $1`
+		SELECT p.id,
+			p.title,
+			p.description,
+			p.difficulty,
+			p.time_limit,
+			p.memory_limit,
+			p.tags,
+			p.testcase_bundle,
+			p.created_at,
+			p.updated_at,
+			tb.object_key,
+			tb.sha256,
+			tb.version
+		FROM problems p
+		LEFT JOIN LATERAL (
+			SELECT object_key, sha256, version
+			FROM testcase_bundles
+			WHERE problem_id = p.id
+			ORDER BY version DESC
+			LIMIT 1
+		) tb ON true
+		WHERE p.id = $1`
 	var problem types.Problem
 	var tagsJSON, bundleJSON []byte
+	var objectKey, sha256 sql.NullString
+	var version sql.NullInt64
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&problem.ID,
 		&problem.Title,
@@ -93,6 +146,9 @@ func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, err
 		&bundleJSON,
 		&problem.CreatedAt,
 		&problem.UpdatedAt,
+		&objectKey,
+		&sha256,
+		&version,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -102,7 +158,15 @@ func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, err
 	}
 
 	_ = json.Unmarshal(tagsJSON, &problem.Tags)
-	_ = json.Unmarshal(bundleJSON, &problem.TestcaseBundle)
+	if objectKey.Valid && sha256.Valid && version.Valid {
+		problem.TestcaseBundle = types.TestcaseBundle{
+			ObjectKey: objectKey.String,
+			SHA256:    sha256.String,
+			Version:   int(version.Int64),
+		}
+	} else {
+		_ = json.Unmarshal(bundleJSON, &problem.TestcaseBundle)
+	}
 	return problem, nil
 }
 
@@ -115,16 +179,22 @@ func (r *ProblemRepository) Create(ctx context.Context, problem types.Problem) (
 	if err != nil {
 		return types.Problem{}, err
 	}
-	bundleJSON, err := json.Marshal(problem.TestcaseBundle)
+
+	const query = `
+		INSERT INTO problems (title, description, difficulty, time_limit, memory_limit, tags, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id`
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return types.Problem{}, err
 	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 
-	const query = `
-		INSERT INTO problems (title, description, difficulty, time_limit, memory_limit, tags, testcase_bundle, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id`
-	if err := r.db.QueryRowContext(
+	if err = tx.QueryRowContext(
 		ctx,
 		query,
 		problem.Title,
@@ -133,10 +203,24 @@ func (r *ProblemRepository) Create(ctx context.Context, problem types.Problem) (
 		problem.TimeLimit,
 		problem.MemoryLimit,
 		tagsJSON,
-		bundleJSON,
 		problem.CreatedAt,
 		problem.UpdatedAt,
 	).Scan(&problem.ID); err != nil {
+		return types.Problem{}, err
+	}
+
+	if _, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO testcase_bundles (problem_id, object_key, sha256, version) VALUES ($1, $2, $3, $4)`,
+		problem.ID,
+		problem.TestcaseBundle.ObjectKey,
+		problem.TestcaseBundle.SHA256,
+		problem.TestcaseBundle.Version,
+	); err != nil {
+		return types.Problem{}, err
+	}
+
+	if err = tx.Commit(); err != nil {
 		return types.Problem{}, err
 	}
 
@@ -150,10 +234,6 @@ func (r *ProblemRepository) Update(ctx context.Context, problem types.Problem) (
 	if err != nil {
 		return types.Problem{}, err
 	}
-	bundleJSON, err := json.Marshal(problem.TestcaseBundle)
-	if err != nil {
-		return types.Problem{}, err
-	}
 
 	const query = `
 		UPDATE problems
@@ -163,9 +243,8 @@ func (r *ProblemRepository) Update(ctx context.Context, problem types.Problem) (
 			time_limit = $4,
 			memory_limit = $5,
 			tags = $6,
-			testcase_bundle = $7,
-			updated_at = $8
-		WHERE id = $9`
+			updated_at = $7
+		WHERE id = $8`
 	result, err := r.db.ExecContext(
 		ctx,
 		query,
@@ -175,7 +254,6 @@ func (r *ProblemRepository) Update(ctx context.Context, problem types.Problem) (
 		problem.TimeLimit,
 		problem.MemoryLimit,
 		tagsJSON,
-		bundleJSON,
 		problem.UpdatedAt,
 		problem.ID,
 	)
@@ -205,6 +283,79 @@ func (r *ProblemRepository) Delete(ctx context.Context, id int) error {
 	}
 	if affected == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *ProblemRepository) GetLatestTestcaseBundle(ctx context.Context, problemID int) (types.TestcaseBundle, error) {
+	const query = `
+		SELECT object_key, sha256, version
+		FROM testcase_bundles
+		WHERE problem_id = $1
+		ORDER BY version DESC
+		LIMIT 1`
+	var bundle types.TestcaseBundle
+	err := r.db.QueryRowContext(ctx, query, problemID).Scan(
+		&bundle.ObjectKey,
+		&bundle.SHA256,
+		&bundle.Version,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return types.TestcaseBundle{}, ErrNotFound
+		}
+		return types.TestcaseBundle{}, err
+	}
+	return bundle, nil
+}
+
+func (r *ProblemRepository) AddTestcaseBundleVersion(ctx context.Context, problemID int, bundle types.TestcaseBundle) error {
+	bundleJSON, err := json.Marshal(bundle)
+	if err != nil {
+		return err
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(
+		ctx,
+		`INSERT INTO testcase_bundles (problem_id, object_key, sha256, version) VALUES ($1, $2, $3, $4)`,
+		problemID,
+		bundle.ObjectKey,
+		bundle.SHA256,
+		bundle.Version,
+	); err != nil {
+		return err
+	}
+
+	result, err := tx.ExecContext(
+		ctx,
+		`UPDATE problems SET testcase_bundle = $1, updated_at = $2 WHERE id = $3`,
+		bundleJSON,
+		time.Now(),
+		problemID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
 	}
 	return nil
 }
