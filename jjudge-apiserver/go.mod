@@ -3,6 +3,7 @@ module github.com/jjudge-oj/apiserver
 go 1.25.5
 
 require (
+	cloud.google.com/go/pubsub v1.49.0
 	cloud.google.com/go/storage v1.56.0
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/golang-jwt/jwt/v5 v5.3.0
@@ -10,6 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	github.com/minio/minio-go/v7 v7.0.97
+	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.46.0
 	google.golang.org/api v0.247.0
@@ -53,6 +55,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
+	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.36.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 // indirect

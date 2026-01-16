@@ -12,6 +12,8 @@ type Config struct {
 	Database   DatabaseConfig
 	Minio      MinioConfig
 	GCS        GCSConfig
+	PubSub     PubSubConfig
+	RabbitMQ   RabbitMQConfig
 }
 
 type DatabaseConfig struct {
@@ -35,6 +37,19 @@ type GCSConfig struct {
 	Bucket          string
 	ProjectID       string
 	CredentialsFile string
+}
+
+type PubSubConfig struct {
+	ProjectID          string
+	CredentialsFile    string
+	SubscriptionSuffix string
+}
+
+type RabbitMQConfig struct {
+	URL             string
+	QueueDurable    bool
+	QueueAutoDelete bool
+	PrefetchCount   int
 }
 
 func LoadConfig() Config {
@@ -63,6 +78,17 @@ func LoadConfig() Config {
 			Bucket:          getEnv("GCS_BUCKET", ""),
 			ProjectID:       getEnv("GCS_PROJECT_ID", ""),
 			CredentialsFile: getEnv("GCS_CREDENTIALS_FILE", ""),
+		},
+		PubSub: PubSubConfig{
+			ProjectID:          getEnv("PUBSUB_PROJECT_ID", ""),
+			CredentialsFile:    getEnv("PUBSUB_CREDENTIALS_FILE", ""),
+			SubscriptionSuffix: getEnv("PUBSUB_SUBSCRIPTION_SUFFIX", "-sub"),
+		},
+		RabbitMQ: RabbitMQConfig{
+			URL:             getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+			QueueDurable:    getEnv("RABBITMQ_QUEUE_DURABLE", "false") == "true",
+			QueueAutoDelete: getEnv("RABBITMQ_QUEUE_AUTO_DELETE", "false") == "true",
+			PrefetchCount:   getEnvInt("RABBITMQ_PREFETCH_COUNT", 0),
 		},
 	}
 }
