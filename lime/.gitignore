@@ -1,0 +1,20 @@
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.out
+lime
+
+*.log
+*.tmp
+
+.DS_Store
+Thumbs.db
+
+# Build directories
+/build/
+
+# IDE
+.vscode/
+.idea/
