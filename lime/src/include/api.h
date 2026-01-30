@@ -21,6 +21,9 @@ typedef struct {
     uint32_t max_open_files;
     uint64_t stack_limit_bytes;
 
+    char *use_cpus; // e.g. "0-3,5"
+    char *use_mems; // e.g. "0,2"
+
     char *stdin;
 
     char *rootfs_path;  

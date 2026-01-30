@@ -195,6 +195,8 @@ int handle_run(int argc, char **argv) {
         .cpu_quota_us = 100000,
         .memory_limit_bytes = req->memory_limit_bytes,
         .pids_limit = req->max_processes,
+        .use_cpus = req->use_cpus,
+        .use_mems = req->use_mems,
     };
 
     const char *cgroup_root = getenv("LIME_CGROUP_ROOT");
@@ -507,6 +509,32 @@ static ExecRequest* parse_exec_request_from_json(cJSON *json) {
         return NULL;
     }
     req->stack_limit_bytes = (uint64_t)stack_limit_bytes->valuedouble;
+
+    cJSON *use_cpus = cJSON_GetObjectItemCaseSensitive(json, "use_cpus");
+    if(!cJSON_IsString(use_cpus)) {
+        fprintf(stderr, "ExecRequest.use_cpus is not a string\n");
+        free_exec_request(req);
+        return NULL;
+    }
+    req->use_cpus = strdup(use_cpus->valuestring);
+    if (!req->use_cpus) {
+        fprintf(stderr, "Failed to allocate ExecRequest.use_cpus\n");
+        free_exec_request(req);
+        return NULL;
+    }
+
+    cJSON *use_mems = cJSON_GetObjectItemCaseSensitive(json, "use_mems");
+    if(!cJSON_IsString(use_mems)) {
+        fprintf(stderr, "ExecRequest.use_mems is not a string\n");
+        free_exec_request(req);
+        return NULL;
+    }
+    req->use_mems = strdup(use_mems->valuestring);
+    if (!req->use_mems) {
+        fprintf(stderr, "Failed to allocate ExecRequest.use_mems\n");
+        free_exec_request(req);
+        return NULL;
+    }
 
     cJSON *stdin = cJSON_GetObjectItemCaseSensitive(json, "stdin");
     if(!cJSON_IsString(stdin)) {

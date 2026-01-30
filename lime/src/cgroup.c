@@ -110,6 +110,36 @@ int create_cgroup(const char *cgroup_root, const struct cgroup_config *config) {
         free(path);
     }
 
+    if(config->use_cpus && config->use_cpus[0] != '\0') {
+        char *path = join_paths(cgroup_subtree_path, "cpuset.cpus");
+        if (!path) {
+            fprintf(stderr, "Failed to build path for cpuset.cpus\n");
+            remove_directory(cgroup_subtree_path);
+            return -1;
+        }
+        if(write_to_file(path, config->use_cpus) == -1) {
+            fprintf(stderr, "Failed to set cpuset.cpus for cgroup %s\n", config->name);
+            remove_directory(cgroup_subtree_path);
+            return -1;
+        };
+        free(path);
+    }
+
+    if(config->use_mems && config->use_mems[0] != '\0') {
+        char *path = join_paths(cgroup_subtree_path, "cpuset.mems");
+        if (!path) {
+            fprintf(stderr, "Failed to build path for cpuset.mems\n");
+            remove_directory(cgroup_subtree_path);
+            return -1;
+        }
+        if(write_to_file(path, config->use_mems) == -1) {
+            fprintf(stderr, "Failed to set cpuset.mems for cgroup %s\n", config->name);
+            remove_directory(cgroup_subtree_path);
+            return -1;
+        };
+        free(path);
+    }
+
     free(cgroup_subtree_path);
 
     return 0;

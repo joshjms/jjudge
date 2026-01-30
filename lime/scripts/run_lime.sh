@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+rm -rf /tmp/lime_test_input /tmp/lime_test_output
+
+mkdir /tmp/lime_test_input
+mkdir /tmp/lime_test_output 
+
+cp tests/test_files/* /tmp/lime_test_input/
+
 export LIME_CGROUP_ROOT="${LIME_CGROUP_ROOT:-/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/lime.slice}"
 
 : "${LIME_BIN:=./build/lime}"
 : "${LIME_ID:=test}"
-: "${LIME_ARGS_JSON:=[\"/bin/echo\", \"Hello, from Lime!\"]}"
+: "${LIME_ARGS_JSON:=[\"/usr/local/bin/g++\", \"-o\", \"/tmp/output/a.out\", \"/tmp/input/basic.cpp\"]}"
 : "${LIME_ENVP_JSON:=[\"PATH=/usr/bin:/usr/local/bin:/bin\"]}"
 : "${LIME_CPU_TIME_LIMIT_US:=1000000}"
 : "${LIME_WALL_TIME_LIMIT_US:=2000000}"
 : "${LIME_MEMORY_LIMIT_BYTES:=268435456}"
-: "${LIME_MAX_PROCESSES:=1}"
+: "${LIME_MAX_PROCESSES:=10}"
 : "${LIME_OUTPUT_LIMIT_BYTES:=8388608}"
 : "${LIME_MAX_OPEN_FILES:=16}"
 : "${LIME_STACK_LIMIT_BYTES:=8388608}"
+: "${LIME_USE_CPUS:=4}"
+: "${LIME_USE_MEMS:=0}"
 : "${LIME_STDIN:=}"
 : "${LIME_ROOTFS_PATH:=/var/castletown/images/gcc-15-bookworm}"
-: "${LIME_BIND_MOUNTS_JSON:=[]}"
+: "${LIME_BIND_MOUNTS_JSON:=[\"/tmp/lime_test_input:/tmp/input\", \"/tmp/lime_test_output:/tmp/output\"]}"
 : "${LIME_USE_OVERLAYFS:=true}"
 
 cat <<JSON | "${LIME_BIN}" run
@@ -31,6 +40,8 @@ cat <<JSON | "${LIME_BIN}" run
 	"output_limit_bytes": ${LIME_OUTPUT_LIMIT_BYTES},
 	"max_open_files": ${LIME_MAX_OPEN_FILES},
 	"stack_limit_bytes": ${LIME_STACK_LIMIT_BYTES},
+	"use_cpus": "${LIME_USE_CPUS}",
+	"use_mems": "${LIME_USE_MEMS}",
 	"stdin": "${LIME_STDIN}",
 	"rootfs_path": "${LIME_ROOTFS_PATH}",
 	"bind_mounts": ${LIME_BIND_MOUNTS_JSON},

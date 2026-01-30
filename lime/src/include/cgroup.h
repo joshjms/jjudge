@@ -10,6 +10,8 @@ struct cgroup_config {
     int cpu_quota_us;
     uint64_t memory_limit_bytes;
     int pids_limit;
+    char *use_cpus; // e.g. "0-3,5"
+    char *use_mems; // e.g. "0,2"
 };
 
 struct cgroup_stats {
