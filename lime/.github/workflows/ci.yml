@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+          sudo apt install -y skopeo
+          
+          sudo apt install -y curl tar
+          curl -L https://github.com/opencontainers/umoci/releases/download/v0.5.1/umoci.linux.amd64 -o umoci
+          chmod +x umoci
+          sudo mv umoci /usr/local/bin/umoci
+        
+      - name: Create cgroup v2 hierarchy
+        run: |
+          sudo systemctl enable user@$(id -u).service
+          sudo echo "+cpu +memory +pids +io +cpuset" | sudo tee /sys/fs/cgroup/user.slice/cgroup.subtree_control
+          sudo echo "+cpu +memory +pids +io +cpuset" | sudo tee /sys/fs/cgroup/user.slice/user-$(id -u).slice/cgroup.subtree_control
+          sudo echo "+cpu +memory +pids +io +cpuset" | sudo tee /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.subtree_control
+          export LIME_CGROUP_ROOT=/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/lime
+          mkdir -p $LIME_CGROUP_ROOT
+          ls -la /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/lime
+          echo "+cpu +memory +pids +io +cpuset" > $LIME_CGROUP_ROOT/cgroup.subtree_control
+          echo "LIME_CGROUP_ROOT=$LIME_CGROUP_ROOT" >> $GITHUB_ENV
+
+      - name: Build Lime
+        run: |
+          mkdir -p build
+          make -j$(nproc)
+
+      - name: Run tests
+        run: |
+          sudo sysctl kernel.unprivileged_userns_clone=1
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          ./scripts/setup_rootfs.sh
+          systemd-run --user --scope ./scripts/run_lime.sh basic.cpp

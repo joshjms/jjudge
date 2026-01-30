@@ -15,6 +15,9 @@ Thumbs.db
 # Build directories
 /build/
 
+# Images
+/images/
+
 # IDE
 .vscode/
 .idea/

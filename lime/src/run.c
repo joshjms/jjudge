@@ -812,9 +812,10 @@ static int child_fn(void *arg) {
     ExecRequest *cfg = args->cfg;
 
     // set mount propagation to private
-    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
-        fprintf(stderr, "Failed to make / private: %m\n");
-        return -1;
+    if(mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
+        perror("mount private");
+        write_byte(sync_fd, 'X');
+        _exit(1);
     }
     
     // wait for parent to setup uid/gid maps
