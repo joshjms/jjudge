@@ -45,7 +45,7 @@ static int child_fn(void *arg);
 static int setup_rootfs_without_overlayfs(const ExecRequest *cfg, const char *ctr_dir);
 static int setup_rootfs_with_overlayfs(const ExecRequest *cfg, const char *ctr_dir);
 static int drop_all_caps(void);
-static void set_limit(int resource, rlim_t soft, rlim_t hard);
+static void set_rlimit(int resource, rlim_t soft, rlim_t hard);
 
 // socket helpers
 static int write_byte(int fd, char b);
@@ -909,11 +909,11 @@ static int child_fn(void *arg) {
     }
 
     // setrlimits
-    set_limit(RLIMIT_NOFILE, cfg->max_open_files, cfg->max_open_files);
-    set_limit(RLIMIT_STACK, cfg->stack_limit_bytes, cfg->stack_limit_bytes);
-    set_limit(RLIMIT_AS, cfg->memory_limit_bytes, cfg->memory_limit_bytes);
-    set_limit(RLIMIT_FSIZE, cfg->output_limit_bytes, cfg->output_limit_bytes);
-    set_limit(RLIMIT_CPU, (cfg->cpu_time_limit_us + 999999) / 1000000, (cfg->cpu_time_limit_us + 999999) / 1000000);
+    set_rlimit(RLIMIT_NOFILE, cfg->max_open_files, cfg->max_open_files);
+    set_rlimit(RLIMIT_STACK, cfg->stack_limit_bytes, cfg->stack_limit_bytes);
+    set_rlimit(RLIMIT_AS, cfg->memory_limit_bytes, cfg->memory_limit_bytes);
+    set_rlimit(RLIMIT_FSIZE, cfg->output_limit_bytes, cfg->output_limit_bytes);
+    set_rlimit(RLIMIT_CPU, (cfg->cpu_time_limit_us + 999999) / 1000000, cfg->cpu_time_limit_us / 1000000 + 1);
 
     // change root
     char *new_root = join_paths(dir, "root");
@@ -1309,12 +1309,14 @@ static int drop_all_caps(void) {
     return 0;
 }
 
-static void set_limit(int resource, rlim_t soft, rlim_t hard) {
+static void set_rlimit(int resource, rlim_t soft, rlim_t hard) {
     struct rlimit rl = {
         .rlim_cur = soft,
         .rlim_max = hard,
     };
-    setrlimit(resource, &rl);
+    if(setrlimit(resource, &rl) != 0) {
+        perror("setrlimit");
+    }
 }
 
 // Socket IPC helpers
