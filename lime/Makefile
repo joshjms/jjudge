@@ -12,7 +12,7 @@ SRC := \
 OBJ := $(SRC:.c=.o)
 
 CPPFLAGS += -I src/include -I third_party/include
-CFLAGS ?= -O2 -g -Wall -Wextra -std=c11
+CFLAGS ?= -O2 -g -Wall -Wextra -std=c2x
 LDFLAGS ?=
 
 .PHONY: all clean
