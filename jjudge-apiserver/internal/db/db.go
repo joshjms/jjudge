@@ -20,17 +20,17 @@ const (
 	defaultMaxOpenConns = 25
 )
 
-func Open(ctx context.Context, cfg config.Config) (*sql.DB, error) {
+func Open(ctx context.Context, cfg *config.DatabaseConfig) (*sql.DB, error) {
 	sslmode := "disable"
-	if cfg.Database.UseSSL {
+	if cfg.UseSSL {
 		sslmode = "require"
 	}
 
 	u := &url.URL{
 		Scheme: "postgres",
-		Host:   fmt.Sprintf("%s:%d", cfg.Database.Host, cfg.Database.Port),
-		User:   url.UserPassword(cfg.Database.User, cfg.Database.Password),
-		Path:   cfg.Database.DBName,
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Path:   cfg.DBName,
 	}
 
 	q := u.Query()

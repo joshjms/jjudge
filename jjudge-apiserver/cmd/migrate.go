@@ -26,7 +26,7 @@ var migrateUpCmd = &cobra.Command{
 	Short: "Apply all up migrations",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.LoadConfig()
-		dsn := buildPostgresURL(cfg)
+		dsn := buildPostgresURL(cfg.Database)
 
 		migrationsURL := "file://internal/db/migrations"
 		migrator, err := migrate.New(migrationsURL, dsn)
@@ -52,17 +52,17 @@ func init() {
 	migrateCmd.AddCommand(migrateUpCmd)
 }
 
-func buildPostgresURL(cfg config.Config) string {
+func buildPostgresURL(cfg *config.DatabaseConfig) string {
 	sslmode := "disable"
-	if cfg.Database.UseSSL {
+	if cfg.UseSSL {
 		sslmode = "require"
 	}
 
 	u := &url.URL{
 		Scheme: "postgres",
-		Host:   fmt.Sprintf("%s:%d", cfg.Database.Host, cfg.Database.Port),
-		User:   url.UserPassword(cfg.Database.User, cfg.Database.Password),
-		Path:   cfg.Database.DBName,
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Path:   cfg.DBName,
 	}
 	q := u.Query()
 	q.Set("sslmode", sslmode)

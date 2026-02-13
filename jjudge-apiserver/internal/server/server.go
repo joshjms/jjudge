@@ -30,8 +30,8 @@ type Server struct {
 }
 
 // New constructs a Server with basic middleware and defaults.
-func New(ctx context.Context, cfg config.Config) (*Server, error) {
-	dbConn, err := db.Open(ctx, cfg)
+func New(ctx context.Context, cfg *config.Config) (*Server, error) {
+	dbConn, err := db.Open(ctx, cfg.Database)
 	if err != nil {
 		return nil, err
 	}

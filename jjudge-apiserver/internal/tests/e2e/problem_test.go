@@ -184,7 +184,7 @@ func registerUser(t *testing.T, baseURL, username, password string) (string, err
 
 func promoteUserToAdmin(username string) error {
 	cfg := config.LoadConfig()
-	dsn := buildPostgresURL(cfg)
+	dsn := buildPostgresURL(cfg.Database)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return err
@@ -420,7 +420,7 @@ func buildMetadataJSON(title, description string, difficulty, timeLimit int, mem
 
 func waitForPostgres(ctx context.Context) error {
 	cfg := config.LoadConfig()
-	dsn := buildPostgresURL(cfg)
+	dsn := buildPostgresURL(cfg.Database)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return err
@@ -475,7 +475,7 @@ func waitForHealth(ctx context.Context, url string) error {
 
 func runMigrations(root string) error {
 	cfg := config.LoadConfig()
-	dsn := buildPostgresURL(cfg)
+	dsn := buildPostgresURL(cfg.Database)
 	migrationsPath := filepath.Join(root, "internal", "db", "migrations")
 	migrationsURL := "file://" + migrationsPath
 
@@ -493,18 +493,18 @@ func runMigrations(root string) error {
 	return nil
 }
 
-func buildPostgresURL(cfg config.Config) string {
+func buildPostgresURL(cfg *config.DatabaseConfig) string {
 	sslmode := "disable"
-	if cfg.Database.UseSSL {
+	if cfg.UseSSL {
 		sslmode = "require"
 	}
-	host := fmt.Sprintf("%s:%d", cfg.Database.Host, cfg.Database.Port)
+	host := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s/%s?sslmode=%s",
-		cfg.Database.User,
-		cfg.Database.Password,
+		cfg.User,
+		cfg.Password,
 		host,
-		cfg.Database.DBName,
+		cfg.DBName,
 		sslmode,
 	)
 }

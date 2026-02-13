@@ -19,7 +19,7 @@ type GCSClient struct {
 }
 
 // NewGCSClient constructs a GCS client from config.
-func NewGCSClient(ctx context.Context, cfg config.GCSConfig) (*GCSClient, error) {
+func NewGCSClient(ctx context.Context, cfg *config.GCSConfig) (*GCSClient, error) {
 	if strings.TrimSpace(cfg.Bucket) == "" {
 		return nil, errors.New("gcs bucket is required")
 	}

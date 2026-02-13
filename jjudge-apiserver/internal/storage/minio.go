@@ -18,7 +18,7 @@ type MinioClient struct {
 }
 
 // NewMinioClient constructs a MinIO client from config.
-func NewMinioClient(cfg config.MinioConfig) (*MinioClient, error) {
+func NewMinioClient(cfg *config.MinioConfig) (*MinioClient, error) {
 	if strings.TrimSpace(cfg.Endpoint) == "" {
 		return nil, errors.New("minio endpoint is required")
 	}

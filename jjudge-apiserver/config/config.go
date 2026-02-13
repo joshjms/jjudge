@@ -9,11 +9,11 @@ import (
 
 type Config struct {
 	ServerPort int
-	Database   DatabaseConfig
-	Minio      MinioConfig
-	GCS        GCSConfig
-	PubSub     PubSubConfig
-	RabbitMQ   RabbitMQConfig
+	Database   *DatabaseConfig
+	Minio      *MinioConfig
+	GCS        *GCSConfig
+	PubSub     *PubSubConfig
+	RabbitMQ   *RabbitMQConfig
 }
 
 type DatabaseConfig struct {
@@ -52,14 +52,14 @@ type RabbitMQConfig struct {
 	PrefetchCount   int
 }
 
-func LoadConfig() Config {
+func LoadConfig() *Config {
 	if os.Getenv("ENV") == "dev" {
 		godotenv.Load()
 	}
 
-	return Config{
+	return &Config{
 		ServerPort: getEnvInt("SERVER_PORT", 8080),
-		Database: DatabaseConfig{
+		Database: &DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
 			Port:     getEnvInt("DB_PORT", 5432),
 			User:     getEnv("DB_USER", "jjudge"),
@@ -67,24 +67,24 @@ func LoadConfig() Config {
 			DBName:   getEnv("DB_NAME", "jjudge"),
 			UseSSL:   getEnv("DB_USE_SSL", "false") == "true",
 		},
-		Minio: MinioConfig{
+		Minio: &MinioConfig{
 			Endpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
 			AccessKey: getEnv("MINIO_ACCESS_KEY", ""),
 			SecretKey: getEnv("MINIO_SECRET_KEY", ""),
 			Bucket:    getEnv("MINIO_BUCKET", "jjudge"),
 			UseSSL:    getEnv("MINIO_USE_SSL", "false") == "true",
 		},
-		GCS: GCSConfig{
+		GCS: &GCSConfig{
 			Bucket:          getEnv("GCS_BUCKET", ""),
 			ProjectID:       getEnv("GCS_PROJECT_ID", ""),
 			CredentialsFile: getEnv("GCS_CREDENTIALS_FILE", ""),
 		},
-		PubSub: PubSubConfig{
+		PubSub: &PubSubConfig{
 			ProjectID:          getEnv("PUBSUB_PROJECT_ID", ""),
 			CredentialsFile:    getEnv("PUBSUB_CREDENTIALS_FILE", ""),
 			SubscriptionSuffix: getEnv("PUBSUB_SUBSCRIPTION_SUFFIX", "-sub"),
 		},
-		RabbitMQ: RabbitMQConfig{
+		RabbitMQ: &RabbitMQConfig{
 			URL:             getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
 			QueueDurable:    getEnv("RABBITMQ_QUEUE_DURABLE", "false") == "true",
 			QueueAutoDelete: getEnv("RABBITMQ_QUEUE_AUTO_DELETE", "false") == "true",

@@ -22,7 +22,7 @@ type RabbitMQClient struct {
 }
 
 // NewRabbitMQClient constructs a RabbitMQ client from config.
-func NewRabbitMQClient(cfg config.RabbitMQConfig) (*RabbitMQClient, error) {
+func NewRabbitMQClient(cfg *config.RabbitMQConfig) (*RabbitMQClient, error) {
 	if strings.TrimSpace(cfg.URL) == "" {
 		return nil, errors.New("rabbitmq url is required")
 	}

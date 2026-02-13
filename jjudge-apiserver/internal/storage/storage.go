@@ -29,7 +29,7 @@ func NewStorage(backend ObjectStorage) *Storage {
 }
 
 // NewStorageFromConfig selects an object storage backend based on config.
-func NewStorageFromConfig(ctx context.Context, cfg config.Config) (*Storage, error) {
+func NewStorageFromConfig(ctx context.Context, cfg *config.Config) (*Storage, error) {
 	if strings.TrimSpace(cfg.GCS.Bucket) != "" {
 		client, err := NewGCSClient(ctx, cfg.GCS)
 		if err != nil {
