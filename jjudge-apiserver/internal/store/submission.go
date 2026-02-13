@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jjudge-oj/apiserver/types"
+	"github.com/jjudge-oj/api/types"
 )
 
 // SubmissionRepository handles persistence for submissions.

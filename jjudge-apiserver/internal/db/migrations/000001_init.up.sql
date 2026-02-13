@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS submissions_problem_id_idx ON submissions(problem_id)
 CREATE INDEX IF NOT EXISTS submissions_user_id_idx ON submissions(user_id);
 
 CREATE TABLE IF NOT EXISTS testcase_bundles (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     problem_id INTEGER NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
     object_key TEXT NOT NULL,
     sha256 TEXT NOT NULL,
@@ -56,9 +56,9 @@ CREATE TABLE IF NOT EXISTS testcase_bundles (
 CREATE UNIQUE INDEX IF NOT EXISTS testcase_bundles_problem_id_idx ON testcase_bundles(problem_id);
 
 CREATE TABLE IF NOT EXISTS testcase_groups (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     bundle_id BIGINT NOT NULL REFERENCES testcase_bundles(id) ON DELETE CASCADE,
-    order_id INTEGER NOT NULL DEFAULT 0,
+    ordinal INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
     points INTEGER NOT NULL DEFAULT 0
 );
@@ -66,9 +66,9 @@ CREATE TABLE IF NOT EXISTS testcase_groups (
 CREATE INDEX IF NOT EXISTS testcase_groups_bundle_id_idx ON testcase_groups(bundle_id);
 
 CREATE TABLE IF NOT EXISTS testcases (
-    id BIGSERIAL PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
     testcase_group_id BIGINT NOT NULL REFERENCES testcase_groups(id) ON DELETE CASCADE,
-    order_id INTEGER NOT NULL DEFAULT 0,
+    ordinal INTEGER NOT NULL DEFAULT 0,
     input TEXT NOT NULL,
     output TEXT NOT NULL,
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE
@@ -77,8 +77,8 @@ CREATE TABLE IF NOT EXISTS testcases (
 CREATE INDEX IF NOT EXISTS testcases_group_id_idx ON testcases(testcase_group_id);
 
 CREATE TABLE IF NOT EXISTS testcase_results (
-    submission_id BIGINT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
-    testcase_id BIGINT NOT NULL REFERENCES testcases(id) ON DELETE CASCADE,
+    submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    testcase_id INTEGER NOT NULL REFERENCES testcases(id) ON DELETE CASCADE,
     verdict INTEGER NOT NULL DEFAULT 0,
     cpu_time BIGINT NOT NULL DEFAULT 0,
     memory BIGINT NOT NULL DEFAULT 0,

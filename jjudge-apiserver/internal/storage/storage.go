@@ -2,7 +2,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
+
+	"github.com/jjudge-oj/apiserver/config"
 )
 
 // ObjectStorage defines common object operations across backends.
@@ -22,6 +26,27 @@ type Storage struct {
 // NewStorage constructs a Storage wrapper for the provided backend.
 func NewStorage(backend ObjectStorage) *Storage {
 	return &Storage{backend: backend}
+}
+
+// NewStorageFromConfig selects an object storage backend based on config.
+func NewStorageFromConfig(ctx context.Context, cfg config.Config) (*Storage, error) {
+	if strings.TrimSpace(cfg.GCS.Bucket) != "" {
+		client, err := NewGCSClient(ctx, cfg.GCS)
+		if err != nil {
+			return nil, err
+		}
+		return NewStorage(client), nil
+	}
+
+	if strings.TrimSpace(cfg.Minio.AccessKey) != "" || strings.TrimSpace(cfg.Minio.SecretKey) != "" {
+		client, err := NewMinioClient(cfg.Minio)
+		if err != nil {
+			return nil, err
+		}
+		return NewStorage(client), nil
+	}
+
+	return nil, errors.New("object storage configuration is required")
 }
 
 // EnsureBucket ensures the configured bucket exists.

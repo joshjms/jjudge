@@ -11,9 +11,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jjudge-oj/api/types"
 	"github.com/jjudge-oj/apiserver/internal/services"
 	"github.com/jjudge-oj/apiserver/internal/store"
-	"github.com/jjudge-oj/apiserver/types"
 	"golang.org/x/crypto/bcrypt"
 )
 

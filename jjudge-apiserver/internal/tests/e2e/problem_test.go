@@ -3,9 +3,7 @@
 package e2e
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -96,12 +93,9 @@ func TestProblemLifecycle(t *testing.T) {
 		t.Fatalf("promote user: %v", err)
 	}
 
-	bundleName, bundleData, err := buildTestBundle()
-	if err != nil {
-		t.Fatalf("build bundle: %v", err)
-	}
+	testcaseFiles := buildTestcaseUploads()
 
-	resp, err := createProblem(t, baseURL, token, bundleName, bundleData)
+	resp, err := createProblem(t, baseURL, token, testcaseFiles)
 	if err != nil {
 		t.Fatalf("create problem: %v", err)
 	}
@@ -113,7 +107,7 @@ func TestProblemLifecycle(t *testing.T) {
 		t.Fatalf("expected problem ID to be set")
 	}
 
-	updated, err := updateProblem(t, baseURL, token, resp.ID, bundleName, bundleData)
+	updated, err := updateProblem(t, baseURL, token, resp.ID, testcaseFiles)
 	if err != nil {
 		t.Fatalf("update problem: %v", err)
 	}
@@ -204,25 +198,27 @@ func promoteUserToAdmin(username string) error {
 	return err
 }
 
-func createProblem(t *testing.T, baseURL, token, bundleName string, bundle []byte) (problemResponse, error) {
+type testcaseUpload struct {
+	name    string
+	content string
+}
+
+func createProblem(t *testing.T, baseURL, token string, files []testcaseUpload) (problemResponse, error) {
 	t.Helper()
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
-	_ = writer.WriteField("title", "Cat Test Problem")
-	_ = writer.WriteField("description", "This is the hardest problem to have ever existed.")
-	_ = writer.WriteField("difficulty", "800")
-	_ = writer.WriteField("time_limit", "1000")
-	_ = writer.WriteField("memory_limit", strconv.FormatInt(256<<20, 10))
-	_ = writer.WriteField("tags", "testing,cats")
-	_ = writer.WriteField("testcase_groups", buildTestcaseGroupsJSON())
+	_ = writer.WriteField("metadata", buildMetadataJSON(
+		"Cat Test Problem",
+		"This is the hardest problem to have ever existed.",
+		800,
+		1000,
+		256<<20,
+		[]string{"testing", "cats"},
+	))
 
-	part, err := writer.CreateFormFile("bundle", bundleName)
-	if err != nil {
-		return problemResponse{}, err
-	}
-	if _, err := part.Write(bundle); err != nil {
+	if err := addTestcaseUploads(writer, files); err != nil {
 		return problemResponse{}, err
 	}
 	if err := writer.Close(); err != nil {
@@ -254,25 +250,22 @@ func createProblem(t *testing.T, baseURL, token, bundleName string, bundle []byt
 	return parsed, nil
 }
 
-func updateProblem(t *testing.T, baseURL, token string, id int, bundleName string, bundle []byte) (problemResponse, error) {
+func updateProblem(t *testing.T, baseURL, token string, id int, files []testcaseUpload) (problemResponse, error) {
 	t.Helper()
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
-	_ = writer.WriteField("title", "Cat Test Problem Updated")
-	_ = writer.WriteField("description", "Did they change the problem?")
-	_ = writer.WriteField("difficulty", "900")
-	_ = writer.WriteField("time_limit", "1500")
-	_ = writer.WriteField("memory_limit", strconv.FormatInt(512<<20, 10))
-	_ = writer.WriteField("tags", "math,arrays,update")
-	_ = writer.WriteField("testcase_groups", buildTestcaseGroupsJSON())
+	_ = writer.WriteField("metadata", buildMetadataJSON(
+		"Cat Test Problem Updated",
+		"Did they change the problem?",
+		900,
+		1500,
+		512<<20,
+		[]string{"math", "arrays", "update"},
+	))
 
-	part, err := writer.CreateFormFile("bundle", bundleName)
-	if err != nil {
-		return problemResponse{}, err
-	}
-	if _, err := part.Write(bundle); err != nil {
+	if err := addTestcaseUploads(writer, files); err != nil {
 		return problemResponse{}, err
 	}
 	if err := writer.Close(); err != nil {
@@ -373,58 +366,54 @@ func expectProblemNotFound(t *testing.T, baseURL string, id int) error {
 	return nil
 }
 
-func buildTestBundle() (string, []byte, error) {
-	tarData, err := buildTarGzBundle()
-	if err != nil {
-		return "", nil, err
+func buildTestcaseUploads() []testcaseUpload {
+	return []testcaseUpload{
+		{name: "first_in.in", content: "1 2\n"},
+		{name: "first_out.out", content: "3\n"},
 	}
-	return "testcases.tar.gz", tarData, nil
 }
 
-func buildTarGzBundle() ([]byte, error) {
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-
-	if err := addTarFile(tw, "0_0.in", "1 2\n"); err != nil {
-		return nil, err
+func addTestcaseUploads(writer *multipart.Writer, files []testcaseUpload) error {
+	for _, file := range files {
+		part, err := writer.CreateFormFile(file.name, file.name)
+		if err != nil {
+			return err
+		}
+		if _, err := part.Write([]byte(file.content)); err != nil {
+			return err
+		}
 	}
-	if err := addTarFile(tw, "0_0.out", "3\n"); err != nil {
-		return nil, err
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	if err := gw.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return nil
 }
 
-func addTarFile(tw *tar.Writer, name, content string) error {
-	header := &tar.Header{
-		Name: name,
-		Mode: 0o644,
-		Size: int64(len(content)),
-	}
-	if err := tw.WriteHeader(header); err != nil {
-		return err
-	}
-	_, err := tw.Write([]byte(content))
-	return err
-}
-
-func buildTestcaseGroupsJSON() string {
-	groups := []map[string]any{
-		{
-			"order_id": 0,
-			"name":     "Sample",
-			"points":   100,
+func buildMetadataJSON(title, description string, difficulty, timeLimit int, memoryLimit int64, tags []string) string {
+	metadata := map[string]any{
+		"title":        title,
+		"description":  description,
+		"difficulty":   difficulty,
+		"time_limit":   timeLimit,
+		"memory_limit": memoryLimit,
+		"tags":         tags,
+		"testcase_bundle": map[string]any{
+			"testcase_groups": []map[string]any{
+				{
+					"ordinal": 0,
+					"name":    "Sample",
+					"points":  100,
+					"testcases": []map[string]any{
+						{
+							"ordinal": 0,
+							"in_key":  "first_in.in",
+							"out_key": "first_out.out",
+						},
+					},
+				},
+			},
 		},
 	}
-	data, err := json.Marshal(groups)
+	data, err := json.Marshal(metadata)
 	if err != nil {
-		return "[]"
+		return "{}"
 	}
 	return string(data)
 }
@@ -532,6 +521,7 @@ func startServer() (*server.Server, error) {
 	_ = os.Setenv("MINIO_ACCESS_KEY", "minioadmin")
 	_ = os.Setenv("MINIO_SECRET_KEY", "minioadmin")
 	_ = os.Setenv("MINIO_BUCKET", "jjudge")
+	_ = os.Setenv("RABBITMQ_URL", "amqp://jjudge:jjudge@localhost:5672/")
 
 	cfg := config.LoadConfig()
 	srv, err := server.New(context.Background(), cfg)

@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 
-	"github.com/jjudge-oj/apiserver/types"
+	"github.com/jjudge-oj/api/types"
 )
 
 // UserRepository defines persistence operations for users.

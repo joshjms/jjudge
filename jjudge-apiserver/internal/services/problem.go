@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jjudge-oj/api/types"
 	"github.com/jjudge-oj/apiserver/internal/storage"
 	"github.com/jjudge-oj/apiserver/internal/store"
-	"github.com/jjudge-oj/apiserver/types"
 )
 
 // ProblemRepository defines persistence operations for problems.
 type ProblemRepository interface {
 	List(ctx context.Context, offset, limit int) ([]types.Problem, int, error)
 	Get(ctx context.Context, id int) (types.Problem, error)
+	GetWithTestcases(ctx context.Context, id int) (types.Problem, error)
 	Create(ctx context.Context, problem types.Problem) (types.Problem, error)
 	Update(ctx context.Context, problem types.Problem) (types.Problem, error)
 	Delete(ctx context.Context, id int) error
@@ -23,11 +24,11 @@ type ProblemRepository interface {
 // ProblemService encapsulates problem use-cases.
 type ProblemService struct {
 	repo    ProblemRepository
-	storage storage.Storage
+	storage *storage.Storage
 }
 
-func NewProblemService(repo ProblemRepository) *ProblemService {
-	return &ProblemService{repo: repo}
+func NewProblemService(repo ProblemRepository, storageClient *storage.Storage) *ProblemService {
+	return &ProblemService{repo: repo, storage: storageClient}
 }
 
 func (s *ProblemService) List(ctx context.Context, offset, limit int) ([]types.Problem, int, error) {
@@ -42,6 +43,10 @@ func (s *ProblemService) List(ctx context.Context, offset, limit int) ([]types.P
 
 func (s *ProblemService) Get(ctx context.Context, id int) (types.Problem, error) {
 	return s.repo.Get(ctx, id)
+}
+
+func (s *ProblemService) GetWithTestcases(ctx context.Context, id int) (types.Problem, error) {
+	return s.repo.GetWithTestcases(ctx, id)
 }
 
 func (s *ProblemService) Create(ctx context.Context, problem types.Problem) (types.Problem, error) {

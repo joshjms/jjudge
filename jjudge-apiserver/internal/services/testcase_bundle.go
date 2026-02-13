@@ -1,221 +1,196 @@
 package services
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path"
-	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/jjudge-oj/apiserver/types"
+	"github.com/jjudge-oj/api/types"
+	"github.com/jjudge-oj/apiserver/internal/utils"
 )
 
-var testcaseFilenamePattern = regexp.MustCompile(`^\d+_\d+\.(in|out)$`)
-
-const testcaseExtractDirEnv = "JJUDGE_TESTCASE_EXTRACT_DIR"
-
-// GetTestcaseBundleFromArchive verifies the testcase bundle data and returns its SHA-256 hash.
-func (s *ProblemService) GetTestcaseBundleFromArchive(filename string, data []byte, tcGroups []types.TestcaseGroup) (types.TestcaseBundle, error) {
-	if len(data) == 0 {
-		return types.TestcaseBundle{}, errors.New("empty bundle data")
-	}
-
-	hash := sha256.Sum256(data)
-	actual := hex.EncodeToString(hash[:])
-
-	tcBundle := types.TestcaseBundle{}
-	tcBundle.ObjectKey = filename
-	tcBundle.SHA256 = actual
-
-	lower := strings.ToLower(strings.TrimSpace(filename))
-	switch {
-	case strings.HasSuffix(lower, ".zip"):
-		return types.TestcaseBundle{}, errors.New("zip bundles are not supported")
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		gr, err := gzip.NewReader(bytes.NewReader(data))
-		if err != nil {
-			return types.TestcaseBundle{}, errors.New("invalid tar.gz bundle")
-		}
-		defer gr.Close()
-
-		tr := tar.NewReader(gr)
-		updatedGroups, err := readTestcaseFromTarGz(tr, tcGroups)
-		if err != nil {
-			return types.TestcaseBundle{}, err
-		}
-		tcBundle.TestcaseGroups = updatedGroups
-		return tcBundle, nil
-	default:
-		return types.TestcaseBundle{}, errors.New("unsupported bundle format")
-	}
+type testcasePair struct {
+	in  []byte
+	out []byte
 }
 
-func readTestcaseFromTarGz(tr *tar.Reader, tcGroups []types.TestcaseGroup) ([]types.TestcaseGroup, error) {
-	extractBase := strings.TrimSpace(os.Getenv(testcaseExtractDirEnv))
-	if extractBase == "" {
-		extractBase = "."
+// GetTestcaseBundleFromFiles verifies testcase files and returns their bundle metadata.
+func (s *ProblemService) GetTestcaseBundleFromFiles(ctx context.Context, problemID int, files map[string][]byte, tcGroups []types.TestcaseGroup) (types.TestcaseBundle, error) {
+	if problemID < 1 {
+		return types.TestcaseBundle{}, errors.New("invalid problem id")
+	}
+	if len(files) == 0 {
+		return types.TestcaseBundle{}, errors.New("testcase files are required")
+	}
+	if s.storage == nil {
+		return types.TestcaseBundle{}, errors.New("object storage is not configured")
 	}
 
-	tempDir, err := os.MkdirTemp(extractBase, "testcase-bundle-")
+	updatedGroups, archiveFiles, err := readTestcasesFromFiles(problemID, files, tcGroups)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create bundle extract directory: %w", err)
-	}
-	defer func() {
-		_ = os.RemoveAll(tempDir)
-	}()
-
-	type pair struct {
-		in  bool
-		out bool
+		return types.TestcaseBundle{}, err
 	}
 
-	groupOrders := make([]map[int]*pair, len(tcGroups))
+	hash, err := hashTestcaseFiles(archiveFiles)
+	if err != nil {
+		return types.TestcaseBundle{}, err
+	}
+
+	archiveData, err := utils.BuildTarGz(archiveFiles)
+	if err != nil {
+		return types.TestcaseBundle{}, err
+	}
+
+	objectKey := fmt.Sprintf("problems/%d/testcases/%s.tar.gz", problemID, hash)
+	if err := s.storage.Put(ctx, objectKey, bytes.NewReader(archiveData), int64(len(archiveData)), "application/gzip"); err != nil {
+		return types.TestcaseBundle{}, fmt.Errorf("failed to upload testcase bundle: %w", err)
+	}
+
+	tcBundle := types.TestcaseBundle{
+		ObjectKey:      objectKey,
+		SHA256:         hash,
+		TestcaseGroups: updatedGroups,
+	}
+	return tcBundle, nil
+}
+
+func hashTestcaseFiles(files map[string][]byte) (string, error) {
+	keys := make([]string, 0, len(files))
+	for key := range files {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	hasher := sha256.New()
+	for _, key := range keys {
+		if _, err := hasher.Write([]byte(key)); err != nil {
+			return "", err
+		}
+		if _, err := hasher.Write([]byte{0}); err != nil {
+			return "", err
+		}
+		if _, err := hasher.Write(files[key]); err != nil {
+			return "", err
+		}
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func readTestcasesFromFiles(problemID int, files map[string][]byte, tcGroups []types.TestcaseGroup) ([]types.TestcaseGroup, map[string][]byte, error) {
+	groupOrders := make([]map[int]*testcasePair, len(tcGroups))
 	for i := range tcGroups {
-		groupOrders[i] = make(map[int]*pair)
+		groupOrders[i] = make(map[int]*testcasePair)
 	}
 
-	count := 0
-	for {
-		header, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, errors.New("invalid tar.gz bundle")
-		}
-		if header.FileInfo().IsDir() {
-			continue
-		}
-		if !header.FileInfo().Mode().IsRegular() {
-			return nil, errors.New("bundle contains unsupported entries")
-		}
-		if err := validateBundleFilename(header.Name); err != nil {
-			return nil, err
+	keySeen := make(map[string]struct{})
+	for groupIndex := range tcGroups {
+		groupOrdinal := tcGroups[groupIndex].Ordinal
+		if groupOrdinal < 0 {
+			return nil, nil, fmt.Errorf("invalid testcase group ordinal: %d", groupOrdinal)
 		}
 
-		base := path.Base(path.Clean(header.Name))
-		groupOrder, testcaseOrder, ext, err := parseTestcaseFilename(base)
-		if err != nil {
-			return nil, err
-		}
-		if groupOrder < 0 || groupOrder >= len(tcGroups) {
-			return nil, fmt.Errorf("testcase group %d does not exist", groupOrder)
-		}
-
-		p := groupOrders[groupOrder][testcaseOrder]
-		if p == nil {
-			p = &pair{}
-			groupOrders[groupOrder][testcaseOrder] = p
-		}
-		switch ext {
-		case "in":
-			if p.in {
-				return nil, fmt.Errorf("duplicate testcase input: %d_%d.in", groupOrder, testcaseOrder)
+		for testcaseIndex := range tcGroups[groupIndex].Testcases {
+			testcase := tcGroups[groupIndex].Testcases[testcaseIndex]
+			if testcase.Ordinal < 0 {
+				return nil, nil, fmt.Errorf("invalid testcase ordinal: %d", testcase.Ordinal)
 			}
-			p.in = true
-		case "out":
-			if p.out {
-				return nil, fmt.Errorf("duplicate testcase output: %d_%d.out", groupOrder, testcaseOrder)
+			if strings.TrimSpace(testcase.InKey) == "" || strings.TrimSpace(testcase.OutKey) == "" {
+				return nil, nil, fmt.Errorf("testcase %d_%d must include in_key and out_key", groupOrdinal, testcase.Ordinal)
 			}
-			p.out = true
-		default:
-			return nil, fmt.Errorf("invalid testcase filename: %s", base)
-		}
+			if _, ok := keySeen[testcase.InKey]; ok {
+				return nil, nil, fmt.Errorf("duplicate in_key: %s", testcase.InKey)
+			}
+			if _, ok := keySeen[testcase.OutKey]; ok {
+				return nil, nil, fmt.Errorf("duplicate out_key: %s", testcase.OutKey)
+			}
+			keySeen[testcase.InKey] = struct{}{}
+			keySeen[testcase.OutKey] = struct{}{}
 
-		dst := filepath.Join(tempDir, base)
-		outFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract testcase: %w", err)
+			inData, ok := files[testcase.InKey]
+			if !ok {
+				return nil, nil, fmt.Errorf("missing testcase input for key: %s", testcase.InKey)
+			}
+			outData, ok := files[testcase.OutKey]
+			if !ok {
+				return nil, nil, fmt.Errorf("missing testcase output for key: %s", testcase.OutKey)
+			}
+
+			p := groupOrders[groupIndex][testcase.Ordinal]
+			if p == nil {
+				p = &testcasePair{}
+				groupOrders[groupIndex][testcase.Ordinal] = p
+			}
+			if p.in != nil || p.out != nil {
+				return nil, nil, fmt.Errorf("duplicate testcase ordinal: %d_%d", groupOrdinal, testcase.Ordinal)
+			}
+			p.in = inData
+			p.out = outData
 		}
-		if _, err := io.Copy(outFile, tr); err != nil {
-			_ = outFile.Close()
-			return nil, fmt.Errorf("failed to extract testcase: %w", err)
-		}
-		if err := outFile.Close(); err != nil {
-			return nil, fmt.Errorf("failed to extract testcase: %w", err)
-		}
-		count++
 	}
 
-	if count == 0 {
-		return nil, errors.New("bundle has no testcases")
-	}
-
-	for groupOrder, orders := range groupOrders {
+	for groupIndex, orders := range groupOrders {
 		if len(orders) == 0 {
 			continue
 		}
 
-		testcaseOrders := make([]int, 0, len(orders))
-		for order, pair := range orders {
-			if !pair.in || !pair.out {
-				return nil, fmt.Errorf("testcase %d_%d must have both .in and .out files", groupOrder, order)
+		testcaseOrdinals := make([]int, 0, len(orders))
+		for ordinal, pair := range orders {
+			if pair.in == nil || pair.out == nil {
+				return nil, nil, fmt.Errorf("testcase %d_%d must have both .in and .out files", tcGroups[groupIndex].Ordinal, ordinal)
 			}
-			testcaseOrders = append(testcaseOrders, order)
+			testcaseOrdinals = append(testcaseOrdinals, ordinal)
 		}
 
-		sort.Ints(testcaseOrders)
-		for expected, order := range testcaseOrders {
-			if order != expected {
-				return nil, fmt.Errorf("testcase order must be consecutive in group %d", groupOrder)
+		sort.Ints(testcaseOrdinals)
+		for expected, ordinal := range testcaseOrdinals {
+			if ordinal != expected {
+				return nil, nil, fmt.Errorf("testcase ordinals must be consecutive in group %d", tcGroups[groupIndex].Ordinal)
 			}
-		}
-
-		for _, order := range testcaseOrders {
-			tcGroups[groupOrder].Testcases = append(tcGroups[groupOrder].Testcases, types.Testcase{
-				OrderID: order,
-			})
 		}
 	}
 
-	return tcGroups, nil
+	archiveFiles, err := buildTestcaseArchiveFiles(problemID, tcGroups, groupOrders)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return tcGroups, archiveFiles, nil
 }
 
-func parseTestcaseFilename(base string) (int, int, string, error) {
-	ext := strings.TrimPrefix(path.Ext(base), ".")
-	name := strings.TrimSuffix(base, "."+ext)
-	parts := strings.Split(name, "_")
-	if ext == "" || len(parts) != 2 {
-		return 0, 0, "", fmt.Errorf("invalid testcase filename: %s", base)
+func buildTestcaseArchiveFiles(problemID int, tcGroups []types.TestcaseGroup, groupOrders []map[int]*testcasePair) (map[string][]byte, error) {
+	archiveFiles := make(map[string][]byte)
+	for groupIndex := range groupOrders {
+		orders := make([]int, 0, len(groupOrders[groupIndex]))
+		for order := range groupOrders[groupIndex] {
+			orders = append(orders, order)
+		}
+		sort.Ints(orders)
+		for _, order := range orders {
+			pair := groupOrders[groupIndex][order]
+			if pair == nil || pair.in == nil || pair.out == nil {
+				return nil, fmt.Errorf("testcase %d_%d must have both .in and .out files", tcGroups[groupIndex].Ordinal, order)
+			}
+			base := fmt.Sprintf("%d_%d_%d", problemID, tcGroups[groupIndex].Ordinal, order)
+			inName := base + ".in"
+			outName := base + ".out"
+			if _, exists := archiveFiles[inName]; exists {
+				return nil, fmt.Errorf("duplicate testcase filename: %s", inName)
+			}
+			if _, exists := archiveFiles[outName]; exists {
+				return nil, fmt.Errorf("duplicate testcase filename: %s", outName)
+			}
+			archiveFiles[inName] = pair.in
+			archiveFiles[outName] = pair.out
+		}
 	}
-	groupOrder, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, "", fmt.Errorf("invalid testcase filename: %s", base)
+	if len(archiveFiles) == 0 {
+		return nil, errors.New("testcase files are required")
 	}
-	testcaseOrder, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return 0, 0, "", fmt.Errorf("invalid testcase filename: %s", base)
-	}
-	if groupOrder < 0 || testcaseOrder < 0 {
-		return 0, 0, "", fmt.Errorf("invalid testcase filename: %s", base)
-	}
-	return groupOrder, testcaseOrder, ext, nil
-}
-
-func validateBundleFilename(name string) error {
-	clean := path.Clean(name)
-	if clean == "." {
-		return errors.New("invalid testcase filename")
-	}
-	base := path.Base(clean)
-	if base != clean {
-		return errors.New("bundle must not contain directories")
-	}
-	if strings.Contains(base, `\`) {
-		return errors.New("invalid testcase filename")
-	}
-	if !testcaseFilenamePattern.MatchString(base) {
-		return fmt.Errorf("invalid testcase filename: %s", base)
-	}
-	return nil
+	return archiveFiles, nil
 }

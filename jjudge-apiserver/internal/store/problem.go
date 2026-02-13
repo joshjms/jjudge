@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jjudge-oj/apiserver/types"
+	"github.com/jjudge-oj/api/types"
 )
 
 // ProblemRepository handles persistence for problems.
@@ -170,6 +170,98 @@ func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, err
 	return problem, nil
 }
 
+func (r *ProblemRepository) GetWithTestcases(ctx context.Context, id int) (types.Problem, error) {
+	problem, err := r.Get(ctx, id)
+	if err != nil {
+		return types.Problem{}, err
+	}
+
+	if problem.TestcaseBundle.Version == 0 {
+		return problem, nil
+	}
+
+	const query = `
+		SELECT g.id,
+			g.ordinal,
+			g.name,
+			g.points,
+			t.id,
+			t.ordinal,
+			t.input,
+			t.output,
+			t.is_hidden
+		FROM testcase_bundles b
+		JOIN testcase_groups g ON g.bundle_id = b.id
+		LEFT JOIN testcases t ON t.testcase_group_id = g.id
+		WHERE b.problem_id = $1 AND b.version = $2
+		ORDER BY g.ordinal, t.ordinal`
+	rows, err := r.db.QueryContext(ctx, query, problem.ID, problem.TestcaseBundle.Version)
+	if err != nil {
+		return types.Problem{}, err
+	}
+	defer rows.Close()
+
+	groupsByID := make(map[int]int)
+	groups := make([]types.TestcaseGroup, 0)
+
+	for rows.Next() {
+		var (
+			groupID      int
+			groupOrdinal int
+			groupName    string
+			groupPoints  int
+			testcaseID   sql.NullInt64
+			testOrdinal  sql.NullInt64
+			input        sql.NullString
+			output       sql.NullString
+			isHidden     sql.NullBool
+		)
+		if err := rows.Scan(
+			&groupID,
+			&groupOrdinal,
+			&groupName,
+			&groupPoints,
+			&testcaseID,
+			&testOrdinal,
+			&input,
+			&output,
+			&isHidden,
+		); err != nil {
+			return types.Problem{}, err
+		}
+
+		groupIndex, exists := groupsByID[groupID]
+		if !exists {
+			groupIndex = len(groups)
+			groupsByID[groupID] = groupIndex
+			groups = append(groups, types.TestcaseGroup{
+				ID:        groupID,
+				Ordinal:   groupOrdinal,
+				ProblemID: problem.ID,
+				Name:      groupName,
+				Points:    groupPoints,
+			})
+		}
+
+		if testcaseID.Valid {
+			groups[groupIndex].Testcases = append(groups[groupIndex].Testcases, types.Testcase{
+				ID:              int(testcaseID.Int64),
+				Ordinal:         int(testOrdinal.Int64),
+				TestcaseGroupID: groupID,
+				Input:           input.String,
+				Output:          output.String,
+				IsHidden:        isHidden.Bool,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return types.Problem{}, err
+	}
+
+	problem.TestcaseBundle.TestcaseGroups = groups
+	return problem, nil
+}
+
 func (r *ProblemRepository) Create(ctx context.Context, problem types.Problem) (types.Problem, error) {
 	now := time.Now()
 	problem.CreatedAt = now
@@ -206,17 +298,6 @@ func (r *ProblemRepository) Create(ctx context.Context, problem types.Problem) (
 		problem.CreatedAt,
 		problem.UpdatedAt,
 	).Scan(&problem.ID); err != nil {
-		return types.Problem{}, err
-	}
-
-	if _, err = tx.ExecContext(
-		ctx,
-		`INSERT INTO testcase_bundles (problem_id, object_key, sha256, version) VALUES ($1, $2, $3, $4)`,
-		problem.ID,
-		problem.TestcaseBundle.ObjectKey,
-		problem.TestcaseBundle.SHA256,
-		problem.TestcaseBundle.Version,
-	); err != nil {
 		return types.Problem{}, err
 	}
 
@@ -325,24 +406,49 @@ func (r *ProblemRepository) AddTestcaseBundleVersion(ctx context.Context, proble
 		}
 	}()
 
-	if _, err = tx.ExecContext(
+	var bundleID int
+	if err = tx.QueryRowContext(
 		ctx,
-		`INSERT INTO testcase_bundles (problem_id, object_key, sha256, version) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO testcase_bundles (problem_id, object_key, sha256, version) VALUES ($1, $2, $3, $4) RETURNING id`,
 		problemID,
 		bundle.ObjectKey,
 		bundle.SHA256,
 		bundle.Version,
-	); err != nil {
+	).Scan(&bundleID); err != nil {
 		return err
 	}
 
-	result, err := tx.ExecContext(
-		ctx,
-		`UPDATE problems SET testcase_bundle = $1, updated_at = $2 WHERE id = $3`,
-		bundleJSON,
-		time.Now(),
-		problemID,
-	)
+	for _, group := range bundle.TestcaseGroups {
+		var groupID int
+		if err = tx.QueryRowContext(
+			ctx,
+			`INSERT INTO testcase_groups (bundle_id, ordinal, name, points) VALUES ($1, $2, $3, $4) RETURNING id`,
+			bundleID,
+			group.Ordinal,
+			group.Name,
+			group.Points,
+		).Scan(&groupID); err != nil {
+			return err
+		}
+
+		for _, testcase := range group.Testcases {
+			input := testcase.Input
+			output := testcase.Output
+			if _, err = tx.ExecContext(
+				ctx,
+				`INSERT INTO testcases (testcase_group_id, ordinal, input, output, is_hidden) VALUES ($1, $2, $3, $4, $5)`,
+				groupID,
+				testcase.Ordinal,
+				input,
+				output,
+				testcase.IsHidden,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `UPDATE problems SET testcase_bundle = $1, updated_at = $2 WHERE id = $3`, bundleJSON, time.Now(), problemID)
 	if err != nil {
 		return err
 	}

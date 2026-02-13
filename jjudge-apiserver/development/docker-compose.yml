@@ -55,6 +55,38 @@ services:
     networks:
       - jjudge
 
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: jjudge-apiserver
+    environment:
+      ENV: dev
+      SERVER_PORT: "8080"
+      JWT_SECRET: "dev-secret"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: jjudge
+      DB_PASSWORD: jjudge
+      DB_NAME: jjudge
+      DB_USE_SSL: "false"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: jjudge
+      MINIO_USE_SSL: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - jjudge
+
 volumes:
   postgres_data:
     driver: local

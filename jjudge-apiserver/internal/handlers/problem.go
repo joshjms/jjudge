@@ -11,33 +11,20 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jjudge-oj/api/types"
 	"github.com/jjudge-oj/apiserver/internal/services"
 	"github.com/jjudge-oj/apiserver/internal/store"
-	"github.com/jjudge-oj/apiserver/types"
 )
 
 const (
-	defaultPage         = 1
-	defaultLimit        = 20
-	maxLimit            = 100
-	maxMultipartMemory  = 128 << 20
-	maxBundleBytes      = 256 << 20
-	adminRole           = "admin"
-	formFieldBundle     = "bundle"
-	formFieldGroups     = "testcase_groups"
-	formFieldTitle      = "title"
-	formFieldDesc       = "description"
-	formFieldDifficulty = "difficulty"
-	formFieldTimeLimit  = "time_limit"
-	formFieldMemLimit   = "memory_limit"
-	formFieldTags       = "tags"
+	defaultPage        = 1
+	defaultLimit       = 20
+	maxLimit           = 100
+	maxMultipartMemory = 128 << 20
+	maxBundleBytes     = 256 << 20
+	adminRole          = "admin"
+	formFieldMetadata  = "metadata"
 )
-
-// BundleFile represents an uploaded testcase bundle.
-type BundleFile struct {
-	Filename string
-	Data     []byte
-}
 
 // ProblemHandler provides HTTP handlers for problems.
 type ProblemHandler struct {
@@ -123,26 +110,19 @@ func (h *ProblemHandler) GetProblem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProblemHandler) CreateProblem(w http.ResponseWriter, r *http.Request) {
-	req, err := parseProblemForm(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	tcBundle, err := h.problemService.GetTestcaseBundleFromArchive(req.Bundle.Filename, req.Bundle.Data, req.TestcaseGroups)
+	req, err := parseProblemForm(r, true)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	problem := types.Problem{
-		Title:          req.Title,
-		Description:    req.Description,
-		Difficulty:     req.Difficulty,
-		TimeLimit:      req.TimeLimit,
-		MemoryLimit:    req.MemoryLimit,
-		Tags:           req.Tags,
-		TestcaseBundle: tcBundle,
+		Title:       req.Metadata.Title,
+		Description: req.Metadata.Description,
+		Difficulty:  req.Metadata.Difficulty,
+		TimeLimit:   req.Metadata.TimeLimit,
+		MemoryLimit: req.Metadata.MemoryLimit,
+		Tags:        req.Metadata.Tags,
 	}
 
 	created, err := h.problemService.Create(r.Context(), problem)
@@ -150,6 +130,17 @@ func (h *ProblemHandler) CreateProblem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create problem")
 		return
 	}
+
+	tcBundle, err := h.problemService.GetTestcaseBundleFromFiles(r.Context(), created.ID, req.TestcaseFiles, req.Metadata.TestcaseBundle.TestcaseGroups)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.problemService.UpdateTestcaseBundle(r.Context(), created.ID, tcBundle); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update testcase bundle")
+		return
+	}
+	created.TestcaseBundle = tcBundle
 
 	writeJSON(w, http.StatusCreated, created)
 }
@@ -161,15 +152,14 @@ func (h *ProblemHandler) UpdateProblem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := parseProblemForm(r)
+	req, err := parseProblemForm(r, false)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Update testcase bundle if provided.
-	if req.Bundle.Data != nil {
-		tcBundle, err := h.problemService.GetTestcaseBundleFromArchive(req.Bundle.Filename, req.Bundle.Data, req.TestcaseGroups)
+	if len(req.TestcaseFiles) > 0 {
+		tcBundle, err := h.problemService.GetTestcaseBundleFromFiles(r.Context(), id, req.TestcaseFiles, req.Metadata.TestcaseBundle.TestcaseGroups)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -182,12 +172,12 @@ func (h *ProblemHandler) UpdateProblem(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.problemService.Update(r.Context(), types.Problem{
 		ID:          id,
-		Title:       req.Title,
-		Description: req.Description,
-		Difficulty:  req.Difficulty,
-		TimeLimit:   req.TimeLimit,
-		MemoryLimit: req.MemoryLimit,
-		Tags:        req.Tags,
+		Title:       req.Metadata.Title,
+		Description: req.Metadata.Description,
+		Difficulty:  req.Metadata.Difficulty,
+		TimeLimit:   req.Metadata.TimeLimit,
+		MemoryLimit: req.Metadata.MemoryLimit,
+		Tags:        req.Metadata.Tags,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -222,14 +212,8 @@ func (h *ProblemHandler) DeleteProblem(w http.ResponseWriter, r *http.Request) {
 
 // ProblemUpsertRequest represents the parsed multipart form payload.
 type ProblemUpsertRequest struct {
-	Title          string
-	Description    string
-	Difficulty     int
-	TimeLimit      int64
-	MemoryLimit    int64
-	Tags           []string
-	TestcaseGroups []types.TestcaseGroup
-	Bundle         BundleFile
+	Metadata      types.Problem
+	TestcaseFiles map[string][]byte
 }
 
 // ProblemListResponse is the paginated list response payload.
@@ -284,123 +268,119 @@ func parseProblemID(r *http.Request) (int, error) {
 	return id, nil
 }
 
-func parseProblemForm(r *http.Request) (ProblemUpsertRequest, error) {
+func parseProblemForm(r *http.Request, requireTestcases bool) (ProblemUpsertRequest, error) {
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		return ProblemUpsertRequest{}, errors.New("invalid multipart form")
 	}
 
-	title := strings.TrimSpace(r.FormValue(formFieldTitle))
-	if title == "" {
-		return ProblemUpsertRequest{}, errors.New("title is required")
-	}
-
-	description := strings.TrimSpace(r.FormValue(formFieldDesc))
-	if description == "" {
-		return ProblemUpsertRequest{}, errors.New("description is required")
-	}
-
-	difficulty, err := parseOptionalInt(r.FormValue(formFieldDifficulty))
+	metadata, err := parseMetadata(r)
 	if err != nil {
-		return ProblemUpsertRequest{}, errors.New("invalid difficulty")
+		return ProblemUpsertRequest{}, err
 	}
 
-	timeLimit, err := parseOptionalInt64(r.FormValue(formFieldTimeLimit))
-	if err != nil {
-		return ProblemUpsertRequest{}, errors.New("invalid time limit")
-	}
-
-	memoryLimit, err := parseOptionalInt64(r.FormValue(formFieldMemLimit))
-	if err != nil {
-		return ProblemUpsertRequest{}, errors.New("invalid memory limit")
-	}
-
-	tags := parseTags(r.FormValue(formFieldTags))
-
-	var tcGroups []types.TestcaseGroup
-	if rawGroups := strings.TrimSpace(r.FormValue(formFieldGroups)); rawGroups != "" {
-		if err := json.Unmarshal([]byte(rawGroups), &tcGroups); err != nil {
-			return ProblemUpsertRequest{}, errors.New("invalid testcase groups")
-		}
-	}
-
-	bundle, err := parseBundleFile(r.MultipartForm)
+	testcaseFiles, err := parseTestcaseFiles(r.MultipartForm, metadata.TestcaseBundle.TestcaseGroups, requireTestcases)
 	if err != nil {
 		return ProblemUpsertRequest{}, err
 	}
 
 	return ProblemUpsertRequest{
-		Title:          title,
-		Description:    description,
-		Difficulty:     difficulty,
-		TimeLimit:      timeLimit,
-		MemoryLimit:    memoryLimit,
-		Tags:           tags,
-		TestcaseGroups: tcGroups,
-		Bundle:         bundle,
+		Metadata:      metadata,
+		TestcaseFiles: testcaseFiles,
 	}, nil
 }
 
-func parseOptionalInt(value string) (int, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(value)
-}
-
-func parseOptionalInt64(value string) (int64, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, nil
-	}
-	return strconv.ParseInt(value, 10, 64)
-}
-
-func parseTags(raw string) []string {
-	raw = strings.TrimSpace(raw)
+func parseMetadata(r *http.Request) (types.Problem, error) {
+	raw := strings.TrimSpace(r.FormValue(formFieldMetadata))
 	if raw == "" {
-		return nil
+		return types.Problem{}, errors.New("metadata is required")
 	}
-	parts := strings.Split(raw, ",")
-	tags := make([]string, 0, len(parts))
-	for _, part := range parts {
-		tag := strings.TrimSpace(part)
-		if tag != "" {
-			tags = append(tags, tag)
+
+	var metadata types.Problem
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+		return types.Problem{}, errors.New("invalid metadata")
+	}
+
+	metadata.Title = strings.TrimSpace(metadata.Title)
+	if metadata.Title == "" {
+		return types.Problem{}, errors.New("title is required")
+	}
+	metadata.Description = strings.TrimSpace(metadata.Description)
+	if metadata.Description == "" {
+		return types.Problem{}, errors.New("description is required")
+	}
+
+	return metadata, nil
+}
+
+func parseTestcaseFiles(form *multipart.Form, groups []types.TestcaseGroup, requireTestcases bool) (map[string][]byte, error) {
+	if form == nil {
+		return nil, errors.New("missing form data")
+	}
+
+	keys := testcaseKeysFromGroups(groups)
+	if len(keys) == 0 {
+		if !requireTestcases && len(form.File) == 0 {
+			return map[string][]byte{}, nil
+		}
+		return nil, errors.New("testcase files are required")
+	}
+	if !requireTestcases && len(form.File) == 0 {
+		return map[string][]byte{}, nil
+	}
+
+	filesByKey := make(map[string][]byte, len(keys))
+	var totalBytes int64
+	for _, key := range keys {
+		files := form.File[key]
+		if len(files) == 0 {
+			return nil, fmt.Errorf("missing testcase file for key: %s", key)
+		}
+		if len(files) > 1 {
+			return nil, fmt.Errorf("multiple testcase files provided for key: %s", key)
+		}
+
+		fileHeader := files[0]
+		file, err := fileHeader.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read testcase file: %w", err)
+		}
+
+		data, err := readFileLimited(file, maxBundleBytes)
+		_ = file.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		totalBytes += int64(len(data))
+		if totalBytes > maxBundleBytes {
+			return nil, errors.New("uploaded files too large")
+		}
+
+		filesByKey[key] = data
+	}
+	return filesByKey, nil
+}
+
+func testcaseKeysFromGroups(groups []types.TestcaseGroup) []string {
+	keys := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for _, testcase := range group.Testcases {
+			if testcase.InKey != "" {
+				if _, exists := seen[testcase.InKey]; !exists {
+					seen[testcase.InKey] = struct{}{}
+					keys = append(keys, testcase.InKey)
+				}
+			}
+			if testcase.OutKey != "" {
+				if _, exists := seen[testcase.OutKey]; !exists {
+					seen[testcase.OutKey] = struct{}{}
+					keys = append(keys, testcase.OutKey)
+				}
+			}
 		}
 	}
-	return tags
-}
-
-func parseBundleFile(form *multipart.Form) (BundleFile, error) {
-	if form == nil {
-		return BundleFile{}, errors.New("missing form data")
-	}
-
-	files := form.File[formFieldBundle]
-	if len(files) == 0 {
-		return BundleFile{}, errors.New("bundle file is required")
-	}
-	if len(files) > 1 {
-		return BundleFile{}, errors.New("only one bundle file is allowed")
-	}
-
-	fileHeader := files[0]
-	file, err := fileHeader.Open()
-	if err != nil {
-		return BundleFile{}, fmt.Errorf("failed to read bundle file: %w", err)
-	}
-
-	data, err := readFileLimited(file, maxBundleBytes)
-	_ = file.Close()
-	if err != nil {
-		return BundleFile{}, err
-	}
-
-	return BundleFile{
-		Filename: fileHeader.Filename,
-		Data:     data,
-	}, nil
+	return keys
 }
 
 func readFileLimited(reader io.Reader, limit int64) ([]byte, error) {

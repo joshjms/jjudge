@@ -15,7 +15,9 @@ import (
 	"github.com/jjudge-oj/apiserver/config"
 	"github.com/jjudge-oj/apiserver/internal/db"
 	"github.com/jjudge-oj/apiserver/internal/handlers"
+	"github.com/jjudge-oj/apiserver/internal/mq"
 	"github.com/jjudge-oj/apiserver/internal/services"
+	"github.com/jjudge-oj/apiserver/internal/storage"
 	"github.com/jjudge-oj/apiserver/internal/store"
 )
 
@@ -24,6 +26,7 @@ type Server struct {
 	httpServer *http.Server
 	router     *chi.Mux
 	db         *sql.DB
+	mq         *mq.MQ
 }
 
 // New constructs a Server with basic middleware and defaults.
@@ -35,9 +38,28 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 
 	problemRepo := store.NewProblemRepository(dbConn)
 	userRepo := store.NewUserRepository(dbConn)
+	submissionRepo := store.NewSubmissionRepository(dbConn)
 
-	problemService := services.NewProblemService(problemRepo)
+	storageClient, err := storage.NewStorageFromConfig(ctx, cfg)
+	if err != nil {
+		_ = dbConn.Close()
+		return nil, err
+	}
+	if err := storageClient.EnsureBucket(ctx); err != nil {
+		_ = dbConn.Close()
+		return nil, err
+	}
+
+	mqClient, err := mq.NewRabbitMQClient(cfg.RabbitMQ)
+	if err != nil {
+		_ = dbConn.Close()
+		return nil, err
+	}
+	mqWrapper := mq.New(mqClient)
+
+	problemService := services.NewProblemService(problemRepo, storageClient)
 	userService := services.NewUserService(userRepo)
+	submissionService := services.NewSubmissionService(submissionRepo, storageClient, mqWrapper)
 
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if jwtSecret == "" {
@@ -53,11 +75,15 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 		middleware.RealIP,
 		middleware.Recoverer,
 		middleware.Logger,
+		handlers.CORSMiddleware,
 		middleware.Timeout(60*time.Second),
 	)
 	router.Get("/healthz", handlers.Healthz)
 	router.Route("/problems", func(r chi.Router) {
 		handlers.ProblemRouter(r, problemService, userService, authMiddleware)
+	})
+	router.Route("/problems/{problemID}/submissions", func(r chi.Router) {
+		handlers.SubmissionRouter(r, submissionService, problemService, authMiddleware)
 	})
 	router.Route("/auth", func(r chi.Router) {
 		handlers.AuthRouter(r, userService, jwtSecret)
@@ -80,6 +106,7 @@ func New(ctx context.Context, cfg config.Config) (*Server, error) {
 		httpServer: httpServer,
 		router:     router,
 		db:         dbConn,
+		mq:         mqWrapper,
 	}, nil
 }
 
@@ -97,6 +124,9 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown() error {
 	if s.db != nil {
 		_ = s.db.Close()
+	}
+	if s.mq != nil {
+		_ = s.mq.Close()
 	}
 	return s.httpServer.Close()
 }

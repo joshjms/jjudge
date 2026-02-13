@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jjudge-oj/apiserver/types"
+	"github.com/jjudge-oj/api/types"
 )
 
 // UserRepository handles persistence for users.
