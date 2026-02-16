@@ -28,10 +28,10 @@ type Problem struct {
 	// expressed in bytes.
 	MemoryLimit int64 `json:"memory_limit" db:"memory_limit"`
 
-	// TestcaseBundle references the collection of test case groups used
-	// to evaluate submissions. The bundle may be stored externally
-	// (e.g., in an object store) and identified by a content hash.
-	TestcaseBundle TestcaseBundle `json:"testcase_bundle" db:"testcase_bundle"`
+	// TestcaseGroups is the ordered list of test case groups associated with
+	// this problem. Each group contains one or more test cases and contributes
+	// a fixed number of points toward the final score.
+	TestcaseGroups []TestcaseGroup `json:"testcase_groups" db:"testcase_groups"`
 
 	// Tags are free-form labels associated with the problem, used for
 	// categorization, filtering, and search.
@@ -42,29 +42,6 @@ type Problem struct {
 
 	// UpdatedAt is the timestamp of the most recent update to the problem.
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
-}
-
-// TestcaseBundle represents a versioned collection of test case groups
-// used to evaluate submissions for a problem.
-//
-// The bundle may be stored externally (e.g., in an object store such as MinIO)
-// and referenced by ObjectKey. The SHA256 hash uniquely identifies the
-// bundle contents and can be used for integrity verification and caching.
-type TestcaseBundle struct {
-	// ObjectKey is the identifier or path of the bundle in object storage
-	// (e.g., a MinIO object key).
-	ObjectKey string `json:"object_key" db:"object_key"`
-
-	// SHA256 is the cryptographic SHA-256 hash of the bundle contents,
-	// encoded as a hexadecimal string.
-	SHA256 string `json:"sha256" db:"sha256"`
-
-	// TestcaseGroups is the ordered collection of test case groups that
-	// make up this bundle.
-	TestcaseGroups []TestcaseGroup `json:"testcase_groups" db:"testcase_groups"`
-
-	// Version indicates the version number of this testcase bundle.
-	Version int `json:"version" db:"version"`
 }
 
 // TestcaseGroup represents a logical grouping of test cases within a problem.
@@ -108,12 +85,6 @@ type Testcase struct {
 
 	// Output is the expected output produced by a correct solution.
 	Output string `json:"output" db:"output"`
-
-	// InKey is the multipart form key containing this testcase's input file.
-	InKey string `json:"in_key"`
-
-	// OutKey is the multipart form key containing this testcase's output file.
-	OutKey string `json:"out_key"`
 
 	// IsHidden indicates whether this test case is hidden from users.
 	// Hidden test cases are typically used to prevent hard-coded solutions.
