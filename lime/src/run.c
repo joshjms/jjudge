@@ -895,27 +895,7 @@ static int child_fn(void *arg) {
     free(root_path);
     // notify parent that bootstrapping is done
 
-    if(write_byte(sync_fd, 'B') != 0) {
-        perror("write_byte B");
-        write_byte(sync_fd, 'X');
-        _exit(1);
-    }
-
-    b = 0;
-    if (read_byte(sync_fd, &b) != 0 || b != 'C') {
-        perror("read_byte C");
-        write_byte(sync_fd, 'X');
-        _exit(1);
-    }
-
-    // setrlimits
-    set_rlimit(RLIMIT_NOFILE, cfg->max_open_files, cfg->max_open_files);
-    set_rlimit(RLIMIT_STACK, cfg->stack_limit_bytes, cfg->stack_limit_bytes);
-    set_rlimit(RLIMIT_AS, cfg->memory_limit_bytes, cfg->memory_limit_bytes);
-    set_rlimit(RLIMIT_FSIZE, cfg->output_limit_bytes, cfg->output_limit_bytes);
-    set_rlimit(RLIMIT_CPU, (cfg->cpu_time_limit_us + 999999) / 1000000, cfg->cpu_time_limit_us / 1000000 + 1);
-
-    // change root
+        // change root
     char *new_root = join_paths(dir, "root");
     if(!new_root) {
         fprintf(stderr, "Failed to allocate new_root\n");
@@ -1004,6 +984,26 @@ static int child_fn(void *arg) {
             write_byte(sync_fd, 'X');
             _exit(1);
         }
+    }
+
+    // setrlimits
+    set_rlimit(RLIMIT_NOFILE, cfg->max_open_files, cfg->max_open_files);
+    set_rlimit(RLIMIT_STACK, cfg->stack_limit_bytes, cfg->stack_limit_bytes);
+    set_rlimit(RLIMIT_AS, cfg->memory_limit_bytes, cfg->memory_limit_bytes);
+    set_rlimit(RLIMIT_FSIZE, cfg->output_limit_bytes, cfg->output_limit_bytes);
+    set_rlimit(RLIMIT_CPU, (cfg->cpu_time_limit_us + 999999) / 1000000, cfg->cpu_time_limit_us / 1000000 + 1);
+
+    if(write_byte(sync_fd, 'B') != 0) {
+        perror("write_byte B");
+        write_byte(sync_fd, 'X');
+        _exit(1);
+    }
+
+    b = 0;
+    if (read_byte(sync_fd, &b) != 0 || b != 'C') {
+        perror("read_byte C");
+        write_byte(sync_fd, 'X');
+        _exit(1);
     }
 
     if(drop_all_caps() != 0) {
