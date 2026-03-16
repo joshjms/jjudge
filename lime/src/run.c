@@ -29,10 +29,12 @@
 #include "api.h"
 #include "cgroup.h"
 #include "utils.h"
+#include "io.h"
 
 #include "cJSON.h"
 
 static const int CHILD_STACK_SIZE = 1024 * 1024;
+static const int MB = 1048576;
 
 static ExecRequest* read_exec_request_from_stdin();
 static ExecRequest* parse_exec_request_from_json(cJSON *json);
@@ -136,12 +138,6 @@ int handle_run(int argc, char **argv) {
         .cfg = req,
     };
 
-    if(write(in_pipe[1], req->stdin, strlen(req->stdin)) == -1) {
-        perror("write stdin to in_pipe");
-        return 1;
-    }
-    close(in_pipe[1]);
-
     int flags = SIGCHLD | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWTIME;
 
     pid_t child_pid = clone(child_fn, stack + CHILD_STACK_SIZE, flags, &ch_args);
@@ -152,6 +148,13 @@ int handle_run(int argc, char **argv) {
         free(stack);
         return 1;
     }
+
+    // Close the pipe ends the parent doesn't use.
+    // out_pipe[1] and err_pipe[1] must be closed here so the read threads
+    // see EOF when the child exits (not when the parent eventually closes them).
+    close(in_pipe[0]);
+    close(out_pipe[1]);
+    close(err_pipe[1]);
 
     // setup uid/gid maps
     if(setup_uid_gid_maps(child_pid) != 0) {
@@ -220,6 +223,27 @@ int handle_run(int argc, char **argv) {
         return 1;
     }
 
+    // Start IO threads before unblocking the child to exec, so stdin is
+    // written and stdout/stderr are drained concurrently with execution.
+    // This prevents deadlock when input or output exceeds the 64 KB pipe buffer.
+    IOContext io_ctx = {
+        .stdin_fd  = in_pipe[1],
+        .stdin_buf = req->stdin,
+        .stdin_len = strlen(req->stdin),
+        .stdout_fd = out_pipe[0],
+        .stderr_fd = err_pipe[0],
+    };
+    if (io_start(&io_ctx) != 0) {
+        fprintf(stderr, "Failed to start IO\n");
+        delete_cgroup(cgroup_root, req->id);
+        kill(child_pid, SIGKILL);
+        close(sv[0]);
+        close(sv[1]);
+        free(stack);
+        free_exec_request(req);
+        return 1;
+    }
+
     // notify child to drop capabilities
     if(write_byte(sv[0], 'C') != 0) {
         perror("write_byte C");
@@ -228,6 +252,9 @@ int handle_run(int argc, char **argv) {
         close(sv[0]);
         close(sv[1]);
         free(stack);
+        io_wait(&io_ctx);
+        io_free(&io_ctx);
+        free_exec_request(req);
         return 1;
     }
 
@@ -235,18 +262,20 @@ int handle_run(int argc, char **argv) {
     uint64_t wall_time = 0;
     if(waitpid_with_timeout(child_pid, &exit_code, &signal, &wall_time, req->wall_time_limit_us) != 0) {
         if(errno != ETIMEDOUT) {
-            fprintf(stderr, "Child process timed out or error occurred\n");
+            fprintf(stderr, "waitpid_with_timeout failed: %m (errno=%d)\n", errno);
             kill(child_pid, SIGKILL);
             delete_cgroup(cgroup_root, req->id);
             close(sv[0]);
             close(sv[1]);
             free(stack);
+            io_wait(&io_ctx);
+            io_free(&io_ctx);
             free_exec_request(req);
             return 1;
         }
     }
     fprintf(stderr, "Child process exited with exit code %d and signal %d\n", exit_code, signal);
-    
+
     close(sv[0]);
     close(sv[1]);
     // delete_cgroup(cgroup_root, req->id);
@@ -256,20 +285,22 @@ int handle_run(int argc, char **argv) {
     if(get_cgroup_stats(cgroup_root, req->id, &stats) != 0) {
         fprintf(stderr, "Failed to get cgroup stats\n");
         delete_cgroup(cgroup_root, req->id);
+        io_wait(&io_ctx);
+        io_free(&io_ctx);
         free_exec_request(req);
         return 1;
     }
 
-    // read stdout/stderr from pipes
-    close(out_pipe[1]);
-    close(err_pipe[1]);
-    char *stdout_output = read_all_from_fd(out_pipe[0]);
-    char *stderr_output = read_all_from_fd(err_pipe[0]);
+    io_wait(&io_ctx);
+    char *stdout_output = io_ctx.stdout_buf;
+    char *stderr_output = io_ctx.stderr_buf;
 
     ExecResponse *resp = malloc(sizeof(ExecResponse));
     if (!resp) {
         fprintf(stderr, "Failed to allocate ExecResponse\n");
         delete_cgroup(cgroup_root, req->id);
+        free(stdout_output);
+        free(stderr_output);
         free_exec_request(req);
         return 1;
     }
@@ -742,6 +773,7 @@ static int waitpid_with_timeout(pid_t pid, int *exit_code, int *signal, uint64_t
 
     if (!(fds.revents & (POLLIN | POLLHUP))) {
         // Something odd (POLLNVAL, etc.)
+        fprintf(stderr, "poll returned unexpected revents: 0x%x\n", fds.revents);
         close(pfd);
         errno = EIO;
         return -1;
@@ -1092,7 +1124,16 @@ static int setup_rootfs_without_overlayfs(const ExecRequest *cfg, const char *ct
 }
 
 static int setup_rootfs_with_overlayfs(const ExecRequest *cfg, const char *ctr_dir) {
-    char *root_path = join_paths(ctr_dir, "root");;
+    // Mount a tmpfs at ctr_dir so upper/work dirs are not on an overlayfs
+    // filesystem. Overlayfs upper directories must not be on another overlayfs
+    // (e.g. Docker's overlay2 root), and overlay2 sets nouserxattr which
+    // prevents user-namespace overlayfs mounts.
+    if (mount("tmpfs", ctr_dir, "tmpfs", 0, "size=256m,mode=755") != 0) {
+        fprintf(stderr, "Failed to mount tmpfs at %s: %m\n", ctr_dir);
+        return -1;
+    }
+
+    char *root_path = join_paths(ctr_dir, "root");
     if(!root_path) {
         fprintf(stderr, "Failed to allocate root_path\n");
         return -1;
@@ -1134,7 +1175,7 @@ static int setup_rootfs_with_overlayfs(const ExecRequest *cfg, const char *ctr_d
     }
 
     char mount_data[PATH_MAX * 3 + 64];
-    snprintf(mount_data, sizeof(mount_data), "lowerdir=%s,upperdir=%s,workdir=%s", cfg->rootfs_path, upper_dir, work_dir);
+    snprintf(mount_data, sizeof(mount_data), "lowerdir=%s,upperdir=%s,workdir=%s,userxattr", cfg->rootfs_path, upper_dir, work_dir);
     if(mount("overlay", root_path, "overlay", 0, mount_data) != 0) {
         fprintf(stderr, "Failed to mount overlayfs at %s: %m\n", root_path);
         free(work_dir);

@@ -7,13 +7,16 @@ SRC := \
 	src/utils.c \
 	src/cgroup.c \
 	src/api.c \
+	src/io.c \
 	third_party/cJSON.c
 
 OBJ := $(SRC:.c=.o)
 
 CPPFLAGS += -I src/include -I third_party/include
 CFLAGS ?= -O2 -g -Wall -Wextra -std=c2x
+CFLAGS += -pthread
 LDFLAGS ?=
+LDFLAGS += -pthread
 
 .PHONY: all clean
 
