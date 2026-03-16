@@ -16,12 +16,15 @@ type LoginResponse = {
 function LoginForm() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const [email, setEmail] = useState("");
+	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
-	const isDisabled = useMemo(() => loading || !email || !password, [loading, email, password]);
+	const isDisabled = useMemo(
+		() => loading || !username || !password,
+		[loading, username, password],
+	);
 
 	const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -29,14 +32,13 @@ function LoginForm() {
 		setError(null);
 
 		try {
-			const response = await api.post<LoginResponse>("/auth/login", { email, password });
+			const response = await api.post<LoginResponse>("/auth/login", { username, password });
 			const token = response?.token ?? "dev-token";
 			const user =
 				response?.user ??
 				{
-					name: email.split("@")[0],
-					email,
-					username: email.split("@")[0],
+					name: username,
+					username,
 				};
 			setAuth({ token, user });
 			const redirectTo =
@@ -68,19 +70,19 @@ function LoginForm() {
 
 				<form className="space-y-6" onSubmit={handleSubmit}>
 					<div className="space-y-2">
-						<label className="text-sm font-semibold text-foreground" htmlFor="email">
-							Email
+						<label className="text-sm font-semibold text-foreground" htmlFor="username">
+							Username
 						</label>
 						<input
-							id="email"
-							name="email"
-							type="email"
+							id="username"
+							name="username"
+							type="text"
 							required
-							autoComplete="email"
+							autoComplete="username"
 							className="w-full border border-border/70 bg-background px-4 py-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/30"
-							placeholder="you@example.com"
-							value={email}
-							onChange={(e) => setEmail(e.target.value)}
+							placeholder="yourname"
+							value={username}
+							onChange={(e) => setUsername(e.target.value)}
 						/>
 					</div>
 

@@ -58,10 +58,9 @@ export function SubmissionForm({ problemId }: SubmissionFormProps) {
         setSuccess(false);
 
         try {
-            await api.post(
-                "/submissions",
+            const result = await api.post<{ submission?: { id?: number } }>(
+                `/problems/${problemId}/submissions`,
                 {
-                    problem_id: problemId,
                     language,
                     code,
                 },
@@ -70,7 +69,12 @@ export function SubmissionForm({ problemId }: SubmissionFormProps) {
                 },
             );
             setSuccess(true);
-            router.push(`/problems/${problemId}/submissions/mine`);
+            const submissionId = result?.submission?.id;
+            if (submissionId) {
+                router.push(`/submissions/${submissionId}`);
+            } else {
+                router.push(`/problems/${problemId}/submissions/mine`);
+            }
         } catch (err) {
             setError("Submission failed. Check your code and try again.");
         } finally {

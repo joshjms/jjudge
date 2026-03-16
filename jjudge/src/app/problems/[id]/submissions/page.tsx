@@ -46,16 +46,21 @@ async function fetchSubmissions(problemId: string | number) {
 }
 
 const verdictStyles: Record<string, string> = {
+	PENDING: "border-border/70 bg-muted/50 text-muted-foreground",
+	JUDGING: "border-blue-500/40 bg-blue-500/10 text-blue-700",
 	AC: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700",
 	WA: "border-amber-500/50 bg-amber-500/10 text-amber-700",
 	TLE: "border-sky-500/40 bg-sky-500/10 text-sky-700",
 	MLE: "border-purple-500/40 bg-purple-500/10 text-purple-700",
-	RTE: "border-rose-500/40 bg-rose-500/10 text-rose-700",
+	RE: "border-rose-500/40 bg-rose-500/10 text-rose-700",
+	CE: "border-orange-500/40 bg-orange-500/10 text-orange-700",
+	SE: "border-red-500/40 bg-red-500/10 text-red-700",
+	IE: "border-red-500/40 bg-red-500/10 text-red-700",
 };
 
 const formatCpuTime = (value?: number) => {
 	if (value === undefined || value === null) return "—";
-	return `${(value / 1000).toFixed(1)} ms`;
+	return `${value} ms`;
 };
 
 const formatMemory = (value?: number) => {

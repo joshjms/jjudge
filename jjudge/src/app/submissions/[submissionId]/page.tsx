@@ -5,6 +5,7 @@ import type { RootContent } from "hast";
 
 import { createStarryNight, common } from "@wooorm/starry-night";
 import { api } from "@/lib/api";
+import { SubmissionDetail } from "@/components/submission-detail";
 
 type Submission = {
 	id: number;
@@ -21,46 +22,21 @@ type Submission = {
 	tests_total?: number;
 	created_at?: string;
 	code?: string;
+	testcase_results?: {
+		testcase_id: number;
+		verdict: string;
+		cpu_time: number;
+		memory: number;
+		input?: string;
+		expected_output?: string;
+		actual_output?: string;
+		error_message?: string;
+	}[];
 };
 
 type Problem = {
 	id: number;
 	title?: string;
-};
-
-const verdictStyles: Record<string, string> = {
-	AC: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700",
-	WA: "border-amber-500/50 bg-amber-500/10 text-amber-700",
-	TLE: "border-sky-500/40 bg-sky-500/10 text-sky-700",
-	MLE: "border-purple-500/40 bg-purple-500/10 text-purple-700",
-	RTE: "border-rose-500/40 bg-rose-500/10 text-rose-700",
-};
-
-const formatCpuTime = (value?: number) => {
-	if (value === undefined || value === null) return "—";
-	return `${(value / 1000).toFixed(1)} ms`;
-};
-
-const formatMemory = (value?: number) => {
-	if (value === undefined || value === null) return "—";
-	const mb = value / (1024 * 1024);
-	return `${mb.toFixed(2)} MB`;
-};
-
-const formatTests = (passed?: number, total?: number) => {
-	if (passed === undefined || total === undefined) return "—";
-	return `${passed}/${total}`;
-};
-
-const formatDate = (value?: string) => {
-	if (!value) return "—";
-	return new Intl.DateTimeFormat(undefined, {
-		year: "numeric",
-		month: "short",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(new Date(value));
 };
 
 async function fetchProblem(id: string | number) {
@@ -135,8 +111,6 @@ export default async function SubmissionDetailsPage({
 	}
 
 	const problem = await fetchProblem(submission.problem_id);
-	const verdict = submission.verdict?.toUpperCase?.() ?? "PENDING";
-	const verdictClass = verdictStyles[verdict] ?? "border-border/70 bg-muted/50 text-foreground";
 
 	let highlightedCode: ReactNode = null;
 	if (submission.code) {
@@ -188,59 +162,7 @@ export default async function SubmissionDetailsPage({
 				</div>
 			</div>
 
-			<section className="border border-border/70 bg-card/70">
-				<div className="grid gap-0 divide-y divide-border/70 sm:grid-cols-2 sm:divide-y-0 sm:divide-x">
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">User</p>
-						<p className="text-lg font-semibold text-foreground">
-							{submission.username ?? (submission.user_id ? `User #${submission.user_id}` : "—")}
-						</p>
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">Verdict</p>
-						<span className={`inline-flex border px-3 py-1 text-xs font-semibold uppercase ${verdictClass}`}>
-							{verdict}
-						</span>
-						{submission.message && (
-							<p className="mt-2 text-sm text-muted-foreground">{submission.message}</p>
-						)}
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">Score</p>
-						<p className="text-lg font-semibold text-foreground">{submission.score ?? "—"}</p>
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">Tests</p>
-						<p className="text-lg font-semibold text-foreground">
-							{formatTests(submission.tests_passed, submission.tests_total)}
-						</p>
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">CPU time</p>
-						<p className="text-lg font-semibold text-foreground">
-							{formatCpuTime(submission.cpu_time)}
-						</p>
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">Memory</p>
-						<p className="text-lg font-semibold text-foreground">
-							{formatMemory(submission.memory)}
-						</p>
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">Language</p>
-						<p className="text-lg font-semibold text-foreground">
-							{submission.language?.toUpperCase?.() ?? "—"}
-						</p>
-					</div>
-					<div className="p-5">
-						<p className="text-xs uppercase tracking-wide text-muted-foreground">Submitted at</p>
-						<p className="text-lg font-semibold text-foreground">
-							{formatDate(submission.created_at)}
-						</p>
-					</div>
-				</div>
-			</section>
+			<SubmissionDetail initialSubmission={submission} />
 
 			<section className="border border-border/70 bg-background/70 px-6 py-6">
 				<div className="mb-3 flex items-center justify-between">

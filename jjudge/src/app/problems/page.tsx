@@ -1,9 +1,5 @@
-import Link from "next/link";
-
 import { api } from "@/lib/api";
-import {
-	Clock9,
-} from "lucide-react";
+import ProblemsClient from "./problems-client";
 
 type Problem = {
 	id?: string;
@@ -13,44 +9,69 @@ type Problem = {
 	tags?: string[];
 };
 
-const fetchProblems = async () => {
+const difficultyOrder: Record<string, number> = {
+	easy: 0,
+	medium: 1,
+	hard: 2,
+};
+
+const fetchProblems = async (): Promise<Problem[] | null> => {
 	try {
-		return await api.get<Problem[]>("/problems", { cache: "no-store" });
+		const payload = await api.get<unknown>("/problems", { cache: "no-store" });
+		if (Array.isArray(payload)) return payload as Problem[];
+		if (payload && typeof payload === "object") {
+			const wrapped = payload as { problems?: Problem[]; data?: Problem[]; items?: Problem[] };
+			if (Array.isArray(wrapped.problems)) return wrapped.problems;
+			if (Array.isArray(wrapped.data)) return wrapped.data;
+			if (Array.isArray(wrapped.items)) return wrapped.items;
+		}
+		return [];
 	} catch {
 		return null;
 	}
 };
 
-export default async function Home() {
+export default async function ProblemsPage() {
 	const problems = await fetchProblems();
 
+	if (!Array.isArray(problems)) {
+		return (
+			<section className="mx-auto max-w-4xl px-6 py-12">
+				<p className="text-sm font-mono text-muted-foreground">
+					Failed to load problems. Check that the API server is running.
+				</p>
+			</section>
+		);
+	}
+
+	// Derive filter options from data — coerce to string so .toUpperCase() is always safe
+	const difficulties = Array.from(
+		new Set(
+			problems
+				.map((p) => (p.difficulty != null ? String(p.difficulty) : undefined))
+				.filter(Boolean) as string[]
+		)
+	).sort((a, b) => (difficultyOrder[a.toLowerCase()] ?? 99) - (difficultyOrder[b.toLowerCase()] ?? 99));
+
+	const allTags = Array.from(
+		new Set(problems.flatMap((p) => (p.tags ?? []).map(String)))
+	).sort();
+
 	return (
-		<>
-		<section className="px-24 py-10 md:py-16 lg:py-24 mx-auto max-w-6xl">
-			{
-				problems ? (
-					<div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-						{problems.map((problem) => (
-							<Link
-								key={problem.id}
-								href={`/problems/${problem.id}`}
-								className="group flex flex-col border border-border/70 p-6 transition hover:border-primary/60 hover:bg-muted/50"
-							>
-								<h2 className="mb-2 text-lg font-semibold transition-colors group-hover:text-primary">
-									{problem.title}
-								</h2>
-								<p className="mt-auto flex items-center text-sm text-muted-foreground">
-									<Clock9 className="mr-2 h-4 w-4" />
-									Difficulty: {problem.difficulty || "Unknown"}
-								</p>
-							</Link>
-						))}
-					</div>
-				) : (
-					<p>Failed to load problems.</p>
-				)
-			}
+		<section className="mx-auto max-w-4xl px-6 py-10">
+			{/* Header */}
+			<div className="mb-8 flex items-baseline gap-4 border-b border-border/60 pb-5">
+				<h1 className="font-display text-5xl text-foreground">PROBLEMS</h1>
+				<span className="text-xs font-mono text-muted-foreground tracking-widest">
+					{problems.length} TOTAL
+				</span>
+			</div>
+
+			<ProblemsClient
+				problems={problems}
+				difficulties={difficulties}
+				allTags={allTags}
+			/>
 		</section>
-		</>
 	);
 }

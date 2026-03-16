@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -28,16 +28,21 @@ type Problem = {
 };
 
 const verdictStyles: Record<string, string> = {
+	PENDING: "border-border/70 bg-muted/50 text-muted-foreground",
+	JUDGING: "border-blue-500/40 bg-blue-500/10 text-blue-700",
 	AC: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700",
 	WA: "border-amber-500/50 bg-amber-500/10 text-amber-700",
 	TLE: "border-sky-500/40 bg-sky-500/10 text-sky-700",
 	MLE: "border-purple-500/40 bg-purple-500/10 text-purple-700",
-	RTE: "border-rose-500/40 bg-rose-500/10 text-rose-700",
+	RE: "border-rose-500/40 bg-rose-500/10 text-rose-700",
+	CE: "border-orange-500/40 bg-orange-500/10 text-orange-700",
+	SE: "border-red-500/40 bg-red-500/10 text-red-700",
+	IE: "border-red-500/40 bg-red-500/10 text-red-700",
 };
 
 const formatCpuTime = (value?: number) => {
 	if (value === undefined || value === null) return "—";
-	return `${(value / 1000).toFixed(1)} ms`;
+	return `${value} ms`;
 };
 
 const formatMemory = (value?: number) => {
@@ -94,6 +99,25 @@ export default function MyProblemSubmissionsPage() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
+	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+	const fetchSubmissions = useCallback(async () => {
+		const problemId = params?.id;
+		if (!problemId || !auth.token || !userId) return;
+
+		try {
+			const submissionsResponse = await api.get<Submission[]>("/submissions", {
+				query: { problem_id: problemId, user_id: userId },
+				headers: { Authorization: `Bearer ${auth.token}` },
+				cache: "no-store",
+			});
+			setSubmissions(submissionsResponse ?? []);
+			setError(null);
+		} catch {
+			// silently ignore poll errors
+		}
+	}, [auth.token, params?.id, userId]);
+
 	useEffect(() => {
 		const load = async () => {
 			const problemId = params?.id;
@@ -127,6 +151,30 @@ export default function MyProblemSubmissionsPage() {
 
 		load();
 	}, [auth.token, params?.id, userId]);
+
+	// Poll when there are PENDING or JUDGING submissions
+	useEffect(() => {
+		const hasPending = submissions?.some(
+			(s) => {
+				const v = s.verdict?.toUpperCase?.();
+				return v === "PENDING" || v === "JUDGING";
+			}
+		);
+
+		if (hasPending) {
+			pollRef.current = setInterval(fetchSubmissions, 2000);
+		} else if (pollRef.current) {
+			clearInterval(pollRef.current);
+			pollRef.current = null;
+		}
+
+		return () => {
+			if (pollRef.current) {
+				clearInterval(pollRef.current);
+				pollRef.current = null;
+			}
+		};
+	}, [submissions, fetchSubmissions]);
 
 	const sortedSubmissions =
 		submissions?.slice().sort((a, b) => {
