@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package graderpb;
+
+option go_package = "github.com/jjudge-oj/grader/api/graderpb;graderpb";
+
+service Grader {
+    rpc Grade (GraderRequest) returns (GraderResponse);
+}
+
+message GraderRequest {
+    string output = 1;
+    string expected_output = 2;
+    string use_grader = 3;
+}
+
+message GraderResponse {
+    bool ok = 1;
+}
