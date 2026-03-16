@@ -1,0 +1,12 @@
+go 1.25.5
+
+use (
+	./jjudge-api
+	./jjudge-apiserver
+	./jjudge-grader
+	./jjudge-worker
+)
+
+replace github.com/jjudge-oj/api v0.0.0-00010101000000-000000000000 => ./jjudge-api
+
+replace github.com/jjudge-oj/grader v0.0.0-00010101000000-000000000000 => ./jjudge-grader

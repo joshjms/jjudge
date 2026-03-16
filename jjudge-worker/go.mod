@@ -5,8 +5,8 @@ go 1.25.5
 require (
 	cloud.google.com/go/storage v1.60.0
 	github.com/google/uuid v1.6.0
-	github.com/jjudge-oj/api v0.0.0
-	github.com/jjudge-oj/grader v0.0.0
+	github.com/jjudge-oj/api v0.0.0-00010101000000-000000000000
+	github.com/jjudge-oj/grader v0.0.0-00010101000000-000000000000
 	github.com/joho/godotenv v1.5.1
 	github.com/minio/minio-go/v7 v7.0.98
 	github.com/rabbitmq/amqp091-go v1.10.0
@@ -71,7 +71,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace (
-	github.com/jjudge-oj/api => ../jjudge-api
-	github.com/jjudge-oj/grader => ../jjudge-grader
-)
