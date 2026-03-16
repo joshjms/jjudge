@@ -84,22 +84,35 @@ func (r *RabbitMQClient) Publish(ctx context.Context, channel string, data []byt
 }
 
 // Subscribe consumes messages from the named queue.
+// Each call opens its own AMQP channel so multiple subscribers can run concurrently.
 func (r *RabbitMQClient) Subscribe(ctx context.Context, channel string, handler Handler) error {
 	if strings.TrimSpace(channel) == "" {
 		return errors.New("rabbitmq channel is required")
 	}
 
-	if _, err := r.declareQueue(channel); err != nil {
-		return err
+	ch, err := r.conn.Channel()
+	if err != nil {
+		return fmt.Errorf("open channel for %q: %w", channel, err)
+	}
+	defer ch.Close()
+
+	if r.prefetchCount > 0 {
+		if err := ch.Qos(r.prefetchCount, 0, false); err != nil {
+			return fmt.Errorf("qos for %q: %w", channel, err)
+		}
+	}
+
+	if _, err := ch.QueueDeclare(channel, r.queueDurable, r.queueAutoDelete, false, false, nil); err != nil {
+		return fmt.Errorf("declare queue %q: %w", channel, err)
 	}
 
 	consumerTag := fmt.Sprintf("consumer-%s", newMessageID())
-	deliveries, err := r.channel.Consume(channel, consumerTag, false, false, false, false, nil)
+	deliveries, err := ch.Consume(channel, consumerTag, false, false, false, false, nil)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = r.channel.Cancel(consumerTag, false)
+		_ = ch.Cancel(consumerTag, false)
 	}()
 
 	for {

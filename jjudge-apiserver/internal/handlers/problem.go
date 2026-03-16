@@ -131,17 +131,20 @@ func (h *ProblemHandler) CreateProblem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tcBundle, err := h.problemService.GetTestcaseBundleFromFiles(r.Context(), created.ID, req.TestcaseFiles, req.Metadata.TestcaseBundle.TestcaseGroups)
+	// Process and upload testcase files
+	updatedGroups, err := h.problemService.ProcessTestcaseFiles(r.Context(), created.ID, req.TestcaseFiles, req.Metadata.TestcaseGroups)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.problemService.UpdateTestcaseBundle(r.Context(), created.ID, tcBundle); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update testcase bundle")
+
+	// Save testcase groups to database
+	if err := h.problemService.SaveTestcaseGroups(r.Context(), created.ID, updatedGroups); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save testcase groups")
 		return
 	}
-	created.TestcaseBundle = tcBundle
 
+	created.TestcaseGroups = updatedGroups
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -159,13 +162,16 @@ func (h *ProblemHandler) UpdateProblem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.TestcaseFiles) > 0 {
-		tcBundle, err := h.problemService.GetTestcaseBundleFromFiles(r.Context(), id, req.TestcaseFiles, req.Metadata.TestcaseBundle.TestcaseGroups)
+		// Process and upload testcase files
+		updatedGroups, err := h.problemService.ProcessTestcaseFiles(r.Context(), id, req.TestcaseFiles, req.Metadata.TestcaseGroups)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := h.problemService.UpdateTestcaseBundle(r.Context(), id, tcBundle); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update testcase bundle")
+
+		// Save testcase groups to database
+		if err := h.problemService.SaveTestcaseGroups(r.Context(), id, updatedGroups); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save testcase groups")
 			return
 		}
 	}
@@ -278,7 +284,7 @@ func parseProblemForm(r *http.Request, requireTestcases bool) (ProblemUpsertRequ
 		return ProblemUpsertRequest{}, err
 	}
 
-	testcaseFiles, err := parseTestcaseFiles(r.MultipartForm, metadata.TestcaseBundle.TestcaseGroups, requireTestcases)
+	testcaseFiles, err := parseTestcaseFiles(r.MultipartForm, metadata.TestcaseGroups, requireTestcases)
 	if err != nil {
 		return ProblemUpsertRequest{}, err
 	}

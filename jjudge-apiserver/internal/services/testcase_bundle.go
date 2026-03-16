@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/jjudge-oj/api/types"
-	"github.com/jjudge-oj/apiserver/internal/utils"
 )
 
 type testcasePair struct {
@@ -19,178 +18,150 @@ type testcasePair struct {
 	out []byte
 }
 
-// GetTestcaseBundleFromFiles verifies testcase files and returns their bundle metadata.
-func (s *ProblemService) GetTestcaseBundleFromFiles(ctx context.Context, problemID int, files map[string][]byte, tcGroups []types.TestcaseGroup) (types.TestcaseBundle, error) {
+// ProcessTestcaseFiles verifies testcase files, uploads them to storage, and returns updated groups with testcase metadata.
+func (s *ProblemService) ProcessTestcaseFiles(ctx context.Context, problemID int, files map[string][]byte, tcGroups []types.TestcaseGroup) ([]types.TestcaseGroup, error) {
 	if problemID < 1 {
-		return types.TestcaseBundle{}, errors.New("invalid problem id")
+		return nil, errors.New("invalid problem id")
 	}
 	if len(files) == 0 {
-		return types.TestcaseBundle{}, errors.New("testcase files are required")
-	}
-	if s.storage == nil {
-		return types.TestcaseBundle{}, errors.New("object storage is not configured")
-	}
-
-	updatedGroups, archiveFiles, err := readTestcasesFromFiles(problemID, files, tcGroups)
-	if err != nil {
-		return types.TestcaseBundle{}, err
-	}
-
-	hash, err := hashTestcaseFiles(archiveFiles)
-	if err != nil {
-		return types.TestcaseBundle{}, err
-	}
-
-	archiveData, err := utils.BuildTarGz(archiveFiles)
-	if err != nil {
-		return types.TestcaseBundle{}, err
-	}
-
-	objectKey := fmt.Sprintf("problems/%d/testcases/%s.tar.gz", problemID, hash)
-	if err := s.storage.Put(ctx, objectKey, bytes.NewReader(archiveData), int64(len(archiveData)), "application/gzip"); err != nil {
-		return types.TestcaseBundle{}, fmt.Errorf("failed to upload testcase bundle: %w", err)
-	}
-
-	tcBundle := types.TestcaseBundle{
-		ObjectKey:      objectKey,
-		SHA256:         hash,
-		TestcaseGroups: updatedGroups,
-	}
-	return tcBundle, nil
-}
-
-func hashTestcaseFiles(files map[string][]byte) (string, error) {
-	keys := make([]string, 0, len(files))
-	for key := range files {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	hasher := sha256.New()
-	for _, key := range keys {
-		if _, err := hasher.Write([]byte(key)); err != nil {
-			return "", err
-		}
-		if _, err := hasher.Write([]byte{0}); err != nil {
-			return "", err
-		}
-		if _, err := hasher.Write(files[key]); err != nil {
-			return "", err
-		}
-	}
-
-	return hex.EncodeToString(hasher.Sum(nil)), nil
-}
-
-func readTestcasesFromFiles(problemID int, files map[string][]byte, tcGroups []types.TestcaseGroup) ([]types.TestcaseGroup, map[string][]byte, error) {
-	groupOrders := make([]map[int]*testcasePair, len(tcGroups))
-	for i := range tcGroups {
-		groupOrders[i] = make(map[int]*testcasePair)
-	}
-
-	keySeen := make(map[string]struct{})
-	for groupIndex := range tcGroups {
-		groupOrdinal := tcGroups[groupIndex].Ordinal
-		if groupOrdinal < 0 {
-			return nil, nil, fmt.Errorf("invalid testcase group ordinal: %d", groupOrdinal)
-		}
-
-		for testcaseIndex := range tcGroups[groupIndex].Testcases {
-			testcase := tcGroups[groupIndex].Testcases[testcaseIndex]
-			if testcase.Ordinal < 0 {
-				return nil, nil, fmt.Errorf("invalid testcase ordinal: %d", testcase.Ordinal)
-			}
-			if strings.TrimSpace(testcase.InKey) == "" || strings.TrimSpace(testcase.OutKey) == "" {
-				return nil, nil, fmt.Errorf("testcase %d_%d must include in_key and out_key", groupOrdinal, testcase.Ordinal)
-			}
-			if _, ok := keySeen[testcase.InKey]; ok {
-				return nil, nil, fmt.Errorf("duplicate in_key: %s", testcase.InKey)
-			}
-			if _, ok := keySeen[testcase.OutKey]; ok {
-				return nil, nil, fmt.Errorf("duplicate out_key: %s", testcase.OutKey)
-			}
-			keySeen[testcase.InKey] = struct{}{}
-			keySeen[testcase.OutKey] = struct{}{}
-
-			inData, ok := files[testcase.InKey]
-			if !ok {
-				return nil, nil, fmt.Errorf("missing testcase input for key: %s", testcase.InKey)
-			}
-			outData, ok := files[testcase.OutKey]
-			if !ok {
-				return nil, nil, fmt.Errorf("missing testcase output for key: %s", testcase.OutKey)
-			}
-
-			p := groupOrders[groupIndex][testcase.Ordinal]
-			if p == nil {
-				p = &testcasePair{}
-				groupOrders[groupIndex][testcase.Ordinal] = p
-			}
-			if p.in != nil || p.out != nil {
-				return nil, nil, fmt.Errorf("duplicate testcase ordinal: %d_%d", groupOrdinal, testcase.Ordinal)
-			}
-			p.in = inData
-			p.out = outData
-		}
-	}
-
-	for groupIndex, orders := range groupOrders {
-		if len(orders) == 0 {
-			continue
-		}
-
-		testcaseOrdinals := make([]int, 0, len(orders))
-		for ordinal, pair := range orders {
-			if pair.in == nil || pair.out == nil {
-				return nil, nil, fmt.Errorf("testcase %d_%d must have both .in and .out files", tcGroups[groupIndex].Ordinal, ordinal)
-			}
-			testcaseOrdinals = append(testcaseOrdinals, ordinal)
-		}
-
-		sort.Ints(testcaseOrdinals)
-		for expected, ordinal := range testcaseOrdinals {
-			if ordinal != expected {
-				return nil, nil, fmt.Errorf("testcase ordinals must be consecutive in group %d", tcGroups[groupIndex].Ordinal)
-			}
-		}
-	}
-
-	archiveFiles, err := buildTestcaseArchiveFiles(problemID, tcGroups, groupOrders)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return tcGroups, archiveFiles, nil
-}
-
-func buildTestcaseArchiveFiles(problemID int, tcGroups []types.TestcaseGroup, groupOrders []map[int]*testcasePair) (map[string][]byte, error) {
-	archiveFiles := make(map[string][]byte)
-	for groupIndex := range groupOrders {
-		orders := make([]int, 0, len(groupOrders[groupIndex]))
-		for order := range groupOrders[groupIndex] {
-			orders = append(orders, order)
-		}
-		sort.Ints(orders)
-		for _, order := range orders {
-			pair := groupOrders[groupIndex][order]
-			if pair == nil || pair.in == nil || pair.out == nil {
-				return nil, fmt.Errorf("testcase %d_%d must have both .in and .out files", tcGroups[groupIndex].Ordinal, order)
-			}
-			base := fmt.Sprintf("%d_%d_%d", problemID, tcGroups[groupIndex].Ordinal, order)
-			inName := base + ".in"
-			outName := base + ".out"
-			if _, exists := archiveFiles[inName]; exists {
-				return nil, fmt.Errorf("duplicate testcase filename: %s", inName)
-			}
-			if _, exists := archiveFiles[outName]; exists {
-				return nil, fmt.Errorf("duplicate testcase filename: %s", outName)
-			}
-			archiveFiles[inName] = pair.in
-			archiveFiles[outName] = pair.out
-		}
-	}
-	if len(archiveFiles) == 0 {
 		return nil, errors.New("testcase files are required")
 	}
-	return archiveFiles, nil
+	if s.storage == nil {
+		return nil, errors.New("object storage is not configured")
+	}
+
+	// Validate testcase structure
+	if _, err := readAndValidateTestcases(files, tcGroups); err != nil {
+		return nil, err
+	}
+
+	// Process each group and update testcases with storage keys and hashes
+	updatedGroups := make([]types.TestcaseGroup, len(tcGroups))
+	for groupIndex, group := range tcGroups {
+		updatedGroups[groupIndex] = group
+		updatedTestcases := make([]types.Testcase, len(group.Testcases))
+
+		for testcaseIndex, tc := range group.Testcases {
+			// Get the input and output data
+			inData, ok := files[tc.InKey]
+			if !ok {
+				return nil, fmt.Errorf("missing input file for testcase %d_%d (key: %s)", group.Ordinal, tc.Ordinal, tc.InKey)
+			}
+			outData, ok := files[tc.OutKey]
+			if !ok {
+				return nil, fmt.Errorf("missing output file for testcase %d_%d (key: %s)", group.Ordinal, tc.Ordinal, tc.OutKey)
+			}
+
+			// Generate storage keys with standard naming
+			inStorageKey := fmt.Sprintf("testcases/%d/%d_%d_%d.in", problemID, problemID, group.Ordinal, tc.Ordinal)
+			outStorageKey := fmt.Sprintf("testcases/%d/%d_%d_%d.out", problemID, problemID, group.Ordinal, tc.Ordinal)
+
+			// Upload input file
+			if err := s.storage.Put(ctx, inStorageKey, bytes.NewReader(inData), int64(len(inData)), "application/octet-stream"); err != nil {
+				return nil, fmt.Errorf("failed to upload input file %s: %w", inStorageKey, err)
+			}
+
+			// Upload output file
+			if err := s.storage.Put(ctx, outStorageKey, bytes.NewReader(outData), int64(len(outData)), "application/octet-stream"); err != nil {
+				return nil, fmt.Errorf("failed to upload output file %s: %w", outStorageKey, err)
+			}
+
+			// Compute hash of input + output
+			hash := computeTestcaseHash(inData, outData)
+
+			// Update testcase with storage keys and hash
+			updatedTestcases[testcaseIndex] = types.Testcase{
+				Ordinal:         tc.Ordinal,
+				TestcaseGroupID: tc.TestcaseGroupID,
+				Input:           tc.Input,  // May be empty for hidden testcases
+				Output:          tc.Output, // May be empty for hidden testcases
+				InKey:           inStorageKey,
+				OutKey:          outStorageKey,
+				Hash:            hash,
+				IsHidden:        tc.IsHidden,
+			}
+		}
+
+		updatedGroups[groupIndex].Testcases = updatedTestcases
+	}
+
+	return updatedGroups, nil
+}
+
+// computeTestcaseHash computes SHA256 hash of input and output data concatenated.
+func computeTestcaseHash(inData, outData []byte) string {
+	hasher := sha256.New()
+	hasher.Write(inData)
+	hasher.Write([]byte{0}) // Separator
+	hasher.Write(outData)
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+// readAndValidateTestcases validates the structure of testcase groups and files.
+func readAndValidateTestcases(files map[string][]byte, tcGroups []types.TestcaseGroup) (map[string]*testcasePair, error) {
+	testcaseData := make(map[string]*testcasePair)
+	keySeen := make(map[string]struct{})
+
+	for _, group := range tcGroups {
+		if group.Ordinal < 0 {
+			return nil, fmt.Errorf("invalid testcase group ordinal: %d", group.Ordinal)
+		}
+
+		// Track ordinals to ensure they're consecutive
+		ordinals := make(map[int]bool)
+
+		for _, tc := range group.Testcases {
+			if tc.Ordinal < 0 {
+				return nil, fmt.Errorf("invalid testcase ordinal: %d in group %d", tc.Ordinal, group.Ordinal)
+			}
+
+			// Check for duplicate ordinals
+			if ordinals[tc.Ordinal] {
+				return nil, fmt.Errorf("duplicate testcase ordinal: %d in group %d", tc.Ordinal, group.Ordinal)
+			}
+			ordinals[tc.Ordinal] = true
+
+			// Validate keys are provided
+			if strings.TrimSpace(tc.InKey) == "" || strings.TrimSpace(tc.OutKey) == "" {
+				return nil, fmt.Errorf("testcase %d_%d must include in_key and out_key", group.Ordinal, tc.Ordinal)
+			}
+
+			// Check for duplicate keys across all testcases
+			if _, ok := keySeen[tc.InKey]; ok {
+				return nil, fmt.Errorf("duplicate in_key: %s", tc.InKey)
+			}
+			if _, ok := keySeen[tc.OutKey]; ok {
+				return nil, fmt.Errorf("duplicate out_key: %s", tc.OutKey)
+			}
+			keySeen[tc.InKey] = struct{}{}
+			keySeen[tc.OutKey] = struct{}{}
+
+			// Verify files exist
+			inData, ok := files[tc.InKey]
+			if !ok {
+				return nil, fmt.Errorf("missing testcase input for key: %s", tc.InKey)
+			}
+			outData, ok := files[tc.OutKey]
+			if !ok {
+				return nil, fmt.Errorf("missing testcase output for key: %s", tc.OutKey)
+			}
+
+			testcaseData[tc.InKey] = &testcasePair{in: inData, out: outData}
+		}
+
+		// Verify ordinals are consecutive starting from 0
+		ordinalList := make([]int, 0, len(ordinals))
+		for ord := range ordinals {
+			ordinalList = append(ordinalList, ord)
+		}
+		sort.Ints(ordinalList)
+
+		for expected, actual := range ordinalList {
+			if expected != actual {
+				return nil, fmt.Errorf("testcase ordinals must be consecutive starting from 0 in group %d (expected %d, got %d)", group.Ordinal, expected, actual)
+			}
+		}
+	}
+
+	return testcaseData, nil
 }

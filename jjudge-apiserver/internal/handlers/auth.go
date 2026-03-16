@@ -43,6 +43,7 @@ func AuthRouter(r chi.Router, userService *services.UserService, jwtSecret strin
 	r.Post("/register", handler.Register)
 	r.Post("/login", handler.Login)
 	r.With(handler.RequireAuth).Get("/me", handler.Me)
+	r.With(handler.RequireAuth, handler.requireAdmin).Get("/users", handler.ListUsers)
 }
 
 // RequireAuth enforces JWT authentication and injects the subject into context.
@@ -184,6 +185,52 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, user)
+}
+
+// ListUsers returns a paginated list of all users. Admin only.
+func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	page, limit, offset, err := parsePagination(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	users, total, err := h.userService.List(r.Context(), offset, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list users")
+		return
+	}
+
+	if users == nil {
+		users = []types.User{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": users,
+		"page":  page,
+		"limit": limit,
+		"total": total,
+	})
+}
+
+func (h *AuthHandler) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, err := userIDFromContext(r.Context())
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		user, err := h.userService.GetByID(r.Context(), userID)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if !strings.EqualFold(user.Role, adminRole) {
+			writeError(w, http.StatusForbidden, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type RegisterRequest struct {

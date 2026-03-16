@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jjudge-oj/api/types"
@@ -21,17 +22,19 @@ func NewSubmissionRepository(db *sql.DB) *SubmissionRepository {
 
 func (r *SubmissionRepository) Get(ctx context.Context, id int64) (types.Submission, error) {
 	const query = `
-		SELECT id, problem_id, user_id, code, language, verdict, score,
-		       cpu_time, memory, message, tests_passed, tests_total,
-		       created_at, updated_at, testcase_results
-		FROM submissions
-		WHERE id = $1`
+		SELECT s.id, s.problem_id, s.user_id, u.username, s.code, s.language, s.verdict, s.score,
+		       s.cpu_time, s.memory, s.message, s.tests_passed, s.tests_total,
+		       s.created_at, s.updated_at, s.testcase_results
+		FROM submissions s
+		LEFT JOIN users u ON u.id = s.user_id
+		WHERE s.id = $1`
 	var submission types.Submission
 	var resultsJSON []byte
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&submission.ID,
 		&submission.ProblemID,
 		&submission.UserID,
+		&submission.Username,
 		&submission.Code,
 		&submission.Language,
 		&submission.Verdict,
@@ -143,6 +146,50 @@ func (r *SubmissionRepository) Update(ctx context.Context, submission types.Subm
 		return types.Submission{}, ErrNotFound
 	}
 	return submission, nil
+}
+
+func (r *SubmissionRepository) List(ctx context.Context, problemID, userID int) ([]types.Submission, error) {
+	query := `SELECT s.id, s.problem_id, s.user_id, u.username, s.code, s.language, s.verdict, s.score,
+	                 s.cpu_time, s.memory, s.message, s.tests_passed, s.tests_total,
+	                 s.created_at, s.updated_at
+	          FROM submissions s
+	          LEFT JOIN users u ON u.id = s.user_id
+	          WHERE 1=1`
+	args := []any{}
+	argIdx := 1
+
+	if problemID > 0 {
+		query += fmt.Sprintf(" AND s.problem_id = $%d", argIdx)
+		args = append(args, problemID)
+		argIdx++
+	}
+	if userID > 0 {
+		query += fmt.Sprintf(" AND s.user_id = $%d", argIdx)
+		args = append(args, userID)
+		argIdx++
+	}
+
+	query += " ORDER BY s.created_at DESC"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var submissions []types.Submission
+	for rows.Next() {
+		var s types.Submission
+		if err := rows.Scan(
+			&s.ID, &s.ProblemID, &s.UserID, &s.Username, &s.Code, &s.Language,
+			&s.Verdict, &s.Score, &s.CPUTime, &s.Memory, &s.Message,
+			&s.TestsPassed, &s.TestsTotal, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		submissions = append(submissions, s)
+	}
+	return submissions, rows.Err()
 }
 
 func (r *SubmissionRepository) Delete(ctx context.Context, id int64) error {

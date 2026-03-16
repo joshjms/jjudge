@@ -8,12 +8,14 @@ import (
 )
 
 type Config struct {
-	ServerPort int
-	Database   *DatabaseConfig
-	Minio      *MinioConfig
-	GCS        *GCSConfig
-	PubSub     *PubSubConfig
-	RabbitMQ   *RabbitMQConfig
+	ServerPort    int
+	Database      *DatabaseConfig
+	Minio         *MinioConfig
+	GCS           *GCSConfig
+	PubSub        *PubSubConfig
+	RabbitMQ      *RabbitMQConfig
+	AdminUser     string
+	AdminPassword string
 }
 
 type DatabaseConfig struct {
@@ -58,7 +60,9 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		ServerPort: getEnvInt("SERVER_PORT", 8080),
+		ServerPort:    getEnvInt("SERVER_PORT", 8080),
+		AdminUser:     getEnv("JJUDGE_ADMIN_USER", ""),
+		AdminPassword: getEnv("JJUDGE_ADMIN_PASSWORD", ""),
 		Database: &DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
 			Port:     getEnvInt("DB_PORT", 5432),

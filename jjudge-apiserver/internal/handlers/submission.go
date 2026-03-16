@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -112,4 +113,61 @@ func (h *SubmissionHandler) CreateSubmission(w http.ResponseWriter, r *http.Requ
 		Submission:  created,
 		ArtifactKey: artifactKey,
 	})
+}
+
+// GetSubmission returns a single submission by ID.
+func (h *SubmissionHandler) GetSubmission(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "submissionID")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "invalid submission id")
+		return
+	}
+
+	submission, err := h.submissionService.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "submission not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch submission")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, submission)
+}
+
+// ListSubmissions returns submissions filtered by optional problem_id and user_id query params.
+func (h *SubmissionHandler) ListSubmissions(w http.ResponseWriter, r *http.Request) {
+	var problemID, userID int
+
+	if v := r.URL.Query().Get("problem_id"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid problem_id")
+			return
+		}
+		problemID = parsed
+	}
+
+	if v := r.URL.Query().Get("user_id"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid user_id")
+			return
+		}
+		userID = parsed
+	}
+
+	submissions, err := h.submissionService.List(r.Context(), problemID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list submissions")
+		return
+	}
+
+	if submissions == nil {
+		submissions = []types.Submission{}
+	}
+
+	writeJSON(w, http.StatusOK, submissions)
 }

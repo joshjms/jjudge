@@ -129,6 +129,43 @@ func (r *UserRepository) Update(ctx context.Context, user types.User) (types.Use
 	return user, nil
 }
 
+func (r *UserRepository) List(ctx context.Context, offset, limit int) ([]types.User, int, error) {
+	const countQuery = `SELECT COUNT(*) FROM users`
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	const query = `
+		SELECT id, username, email, name, role, created_at, updated_at
+		FROM users
+		ORDER BY id ASC
+		LIMIT $1 OFFSET $2`
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []types.User
+	for rows.Next() {
+		var u types.User
+		if err := rows.Scan(
+			&u.ID,
+			&u.Username,
+			&u.Email,
+			&u.Name,
+			&u.Role,
+			&u.CreatedAt,
+			&u.UpdatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		users = append(users, u)
+	}
+	return users, total, rows.Err()
+}
+
 func (r *UserRepository) Delete(ctx context.Context, id int) error {
 	const query = `DELETE FROM users WHERE id = $1`
 	result, err := r.db.ExecContext(ctx, query, id)

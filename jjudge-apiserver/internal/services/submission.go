@@ -19,6 +19,7 @@ import (
 // SubmissionRepository defines persistence operations for submissions.
 type SubmissionRepository interface {
 	Get(ctx context.Context, id int64) (types.Submission, error)
+	List(ctx context.Context, problemID, userID int) ([]types.Submission, error)
 	Create(ctx context.Context, submission types.Submission) (types.Submission, error)
 	Update(ctx context.Context, submission types.Submission) (types.Submission, error)
 	Delete(ctx context.Context, id int64) error
@@ -37,6 +38,10 @@ func NewSubmissionService(repo SubmissionRepository, storageClient *storage.Stor
 
 func (s *SubmissionService) Get(ctx context.Context, id int64) (types.Submission, error) {
 	return s.repo.Get(ctx, id)
+}
+
+func (s *SubmissionService) List(ctx context.Context, problemID, userID int) ([]types.Submission, error) {
+	return s.repo.List(ctx, problemID, userID)
 }
 
 func (s *SubmissionService) Create(ctx context.Context, submission types.Submission) (types.Submission, error) {

@@ -8,6 +8,7 @@ import (
 
 // UserRepository defines persistence operations for users.
 type UserRepository interface {
+	List(ctx context.Context, offset, limit int) ([]types.User, int, error)
 	GetByID(ctx context.Context, id int) (types.User, error)
 	GetByUsername(ctx context.Context, username string) (types.User, error)
 	Create(ctx context.Context, user types.User) (types.User, error)
@@ -22,6 +23,10 @@ type UserService struct {
 
 func NewUserService(repo UserRepository) *UserService {
 	return &UserService{repo: repo}
+}
+
+func (s *UserService) List(ctx context.Context, offset, limit int) ([]types.User, int, error) {
+	return s.repo.List(ctx, offset, limit)
 }
 
 func (s *UserService) GetByID(ctx context.Context, id int) (types.User, error) {

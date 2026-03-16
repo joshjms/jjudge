@@ -34,28 +34,9 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 	}
 
 	const listQuery = `
-		SELECT p.id,
-			p.title,
-			p.description,
-			p.difficulty,
-			p.time_limit,
-			p.memory_limit,
-			p.tags,
-			p.testcase_bundle,
-			p.created_at,
-			p.updated_at,
-			tb.object_key,
-			tb.sha256,
-			tb.version
-		FROM problems p
-		LEFT JOIN LATERAL (
-			SELECT object_key, sha256, version
-			FROM testcase_bundles
-			WHERE problem_id = p.id
-			ORDER BY version DESC
-			LIMIT 1
-		) tb ON true
-		ORDER BY p.id
+		SELECT id, title, description, difficulty, time_limit, memory_limit, tags, created_at, updated_at
+		FROM problems
+		ORDER BY id
 		OFFSET $1 LIMIT $2`
 	rows, err := r.db.QueryContext(ctx, listQuery, offset, limit)
 	if err != nil {
@@ -66,9 +47,7 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 	problems := make([]types.Problem, 0, limit)
 	for rows.Next() {
 		var problem types.Problem
-		var tagsJSON, bundleJSON []byte
-		var objectKey, sha256 sql.NullString
-		var version sql.NullInt64
+		var tagsJSON []byte
 		if err := rows.Scan(
 			&problem.ID,
 			&problem.Title,
@@ -77,26 +56,13 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 			&problem.TimeLimit,
 			&problem.MemoryLimit,
 			&tagsJSON,
-			&bundleJSON,
 			&problem.CreatedAt,
 			&problem.UpdatedAt,
-			&objectKey,
-			&sha256,
-			&version,
 		); err != nil {
 			return nil, 0, err
 		}
 
 		_ = json.Unmarshal(tagsJSON, &problem.Tags)
-		if objectKey.Valid && sha256.Valid && version.Valid {
-			problem.TestcaseBundle = types.TestcaseBundle{
-				ObjectKey: objectKey.String,
-				SHA256:    sha256.String,
-				Version:   int(version.Int64),
-			}
-		} else {
-			_ = json.Unmarshal(bundleJSON, &problem.TestcaseBundle)
-		}
 		problems = append(problems, problem)
 	}
 
@@ -109,32 +75,11 @@ func (r *ProblemRepository) List(ctx context.Context, offset, limit int) ([]type
 
 func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, error) {
 	const query = `
-		SELECT p.id,
-			p.title,
-			p.description,
-			p.difficulty,
-			p.time_limit,
-			p.memory_limit,
-			p.tags,
-			p.testcase_bundle,
-			p.created_at,
-			p.updated_at,
-			tb.object_key,
-			tb.sha256,
-			tb.version
-		FROM problems p
-		LEFT JOIN LATERAL (
-			SELECT object_key, sha256, version
-			FROM testcase_bundles
-			WHERE problem_id = p.id
-			ORDER BY version DESC
-			LIMIT 1
-		) tb ON true
-		WHERE p.id = $1`
+		SELECT id, title, description, difficulty, time_limit, memory_limit, tags, created_at, updated_at
+		FROM problems
+		WHERE id = $1`
 	var problem types.Problem
-	var tagsJSON, bundleJSON []byte
-	var objectKey, sha256 sql.NullString
-	var version sql.NullInt64
+	var tagsJSON []byte
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&problem.ID,
 		&problem.Title,
@@ -143,12 +88,8 @@ func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, err
 		&problem.TimeLimit,
 		&problem.MemoryLimit,
 		&tagsJSON,
-		&bundleJSON,
 		&problem.CreatedAt,
 		&problem.UpdatedAt,
-		&objectKey,
-		&sha256,
-		&version,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -158,15 +99,6 @@ func (r *ProblemRepository) Get(ctx context.Context, id int) (types.Problem, err
 	}
 
 	_ = json.Unmarshal(tagsJSON, &problem.Tags)
-	if objectKey.Valid && sha256.Valid && version.Valid {
-		problem.TestcaseBundle = types.TestcaseBundle{
-			ObjectKey: objectKey.String,
-			SHA256:    sha256.String,
-			Version:   int(version.Int64),
-		}
-	} else {
-		_ = json.Unmarshal(bundleJSON, &problem.TestcaseBundle)
-	}
 	return problem, nil
 }
 
@@ -176,26 +108,15 @@ func (r *ProblemRepository) GetWithTestcases(ctx context.Context, id int) (types
 		return types.Problem{}, err
 	}
 
-	if problem.TestcaseBundle.Version == 0 {
-		return problem, nil
-	}
-
+	// Query testcase groups and testcases directly
 	const query = `
-		SELECT g.id,
-			g.ordinal,
-			g.name,
-			g.points,
-			t.id,
-			t.ordinal,
-			t.input,
-			t.output,
-			t.is_hidden
-		FROM testcase_bundles b
-		JOIN testcase_groups g ON g.bundle_id = b.id
+		SELECT g.id, g.ordinal, g.name, g.points,
+			   t.id, t.ordinal, t.input, t.output, t.in_key, t.out_key, t.hash, t.is_hidden
+		FROM testcase_groups g
 		LEFT JOIN testcases t ON t.testcase_group_id = g.id
-		WHERE b.problem_id = $1 AND b.version = $2
+		WHERE g.problem_id = $1
 		ORDER BY g.ordinal, t.ordinal`
-	rows, err := r.db.QueryContext(ctx, query, problem.ID, problem.TestcaseBundle.Version)
+	rows, err := r.db.QueryContext(ctx, query, problem.ID)
 	if err != nil {
 		return types.Problem{}, err
 	}
@@ -214,6 +135,9 @@ func (r *ProblemRepository) GetWithTestcases(ctx context.Context, id int) (types
 			testOrdinal  sql.NullInt64
 			input        sql.NullString
 			output       sql.NullString
+			inKey        sql.NullString
+			outKey       sql.NullString
+			hash         sql.NullString
 			isHidden     sql.NullBool
 		)
 		if err := rows.Scan(
@@ -225,6 +149,9 @@ func (r *ProblemRepository) GetWithTestcases(ctx context.Context, id int) (types
 			&testOrdinal,
 			&input,
 			&output,
+			&inKey,
+			&outKey,
+			&hash,
 			&isHidden,
 		); err != nil {
 			return types.Problem{}, err
@@ -250,6 +177,9 @@ func (r *ProblemRepository) GetWithTestcases(ctx context.Context, id int) (types
 				TestcaseGroupID: groupID,
 				Input:           input.String,
 				Output:          output.String,
+				InKey:           inKey.String,
+				OutKey:          outKey.String,
+				Hash:            hash.String,
 				IsHidden:        isHidden.Bool,
 			})
 		}
@@ -258,7 +188,7 @@ func (r *ProblemRepository) GetWithTestcases(ctx context.Context, id int) (types
 		return types.Problem{}, err
 	}
 
-	problem.TestcaseBundle.TestcaseGroups = groups
+	problem.TestcaseGroups = groups
 	return problem, nil
 }
 
@@ -368,34 +298,9 @@ func (r *ProblemRepository) Delete(ctx context.Context, id int) error {
 	return nil
 }
 
-func (r *ProblemRepository) GetLatestTestcaseBundle(ctx context.Context, problemID int) (types.TestcaseBundle, error) {
-	const query = `
-		SELECT object_key, sha256, version
-		FROM testcase_bundles
-		WHERE problem_id = $1
-		ORDER BY version DESC
-		LIMIT 1`
-	var bundle types.TestcaseBundle
-	err := r.db.QueryRowContext(ctx, query, problemID).Scan(
-		&bundle.ObjectKey,
-		&bundle.SHA256,
-		&bundle.Version,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return types.TestcaseBundle{}, ErrNotFound
-		}
-		return types.TestcaseBundle{}, err
-	}
-	return bundle, nil
-}
-
-func (r *ProblemRepository) AddTestcaseBundleVersion(ctx context.Context, problemID int, bundle types.TestcaseBundle) error {
-	bundleJSON, err := json.Marshal(bundle)
-	if err != nil {
-		return err
-	}
-
+// SaveTestcaseGroups saves testcase groups and their testcases for a problem.
+// It replaces all existing testcase groups for the problem.
+func (r *ProblemRepository) SaveTestcaseGroups(ctx context.Context, problemID int, groups []types.TestcaseGroup) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -406,24 +311,18 @@ func (r *ProblemRepository) AddTestcaseBundleVersion(ctx context.Context, proble
 		}
 	}()
 
-	var bundleID int
-	if err = tx.QueryRowContext(
-		ctx,
-		`INSERT INTO testcase_bundles (problem_id, object_key, sha256, version) VALUES ($1, $2, $3, $4) RETURNING id`,
-		problemID,
-		bundle.ObjectKey,
-		bundle.SHA256,
-		bundle.Version,
-	).Scan(&bundleID); err != nil {
+	// Delete existing testcase groups (cascades to testcases)
+	if _, err = tx.ExecContext(ctx, `DELETE FROM testcase_groups WHERE problem_id = $1`, problemID); err != nil {
 		return err
 	}
 
-	for _, group := range bundle.TestcaseGroups {
+	// Insert new testcase groups and testcases
+	for _, group := range groups {
 		var groupID int
 		if err = tx.QueryRowContext(
 			ctx,
-			`INSERT INTO testcase_groups (bundle_id, ordinal, name, points) VALUES ($1, $2, $3, $4) RETURNING id`,
-			bundleID,
+			`INSERT INTO testcase_groups (problem_id, ordinal, name, points) VALUES ($1, $2, $3, $4) RETURNING id`,
+			problemID,
 			group.Ordinal,
 			group.Name,
 			group.Points,
@@ -431,16 +330,19 @@ func (r *ProblemRepository) AddTestcaseBundleVersion(ctx context.Context, proble
 			return err
 		}
 
+		// Insert testcases for this group
 		for _, testcase := range group.Testcases {
-			input := testcase.Input
-			output := testcase.Output
 			if _, err = tx.ExecContext(
 				ctx,
-				`INSERT INTO testcases (testcase_group_id, ordinal, input, output, is_hidden) VALUES ($1, $2, $3, $4, $5)`,
+				`INSERT INTO testcases (testcase_group_id, ordinal, input, output, in_key, out_key, hash, is_hidden)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 				groupID,
 				testcase.Ordinal,
-				input,
-				output,
+				testcase.Input,
+				testcase.Output,
+				testcase.InKey,
+				testcase.OutKey,
+				testcase.Hash,
 				testcase.IsHidden,
 			); err != nil {
 				return err
@@ -448,16 +350,9 @@ func (r *ProblemRepository) AddTestcaseBundleVersion(ctx context.Context, proble
 		}
 	}
 
-	result, err := tx.ExecContext(ctx, `UPDATE problems SET testcase_bundle = $1, updated_at = $2 WHERE id = $3`, bundleJSON, time.Now(), problemID)
-	if err != nil {
+	// Update problem's updated_at timestamp
+	if _, err = tx.ExecContext(ctx, `UPDATE problems SET updated_at = $1 WHERE id = $2`, time.Now(), problemID); err != nil {
 		return err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrNotFound
 	}
 
 	if err = tx.Commit(); err != nil {

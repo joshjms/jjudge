@@ -24,6 +24,8 @@ import (
 	"github.com/jjudge-oj/apiserver/config"
 	"github.com/jjudge-oj/apiserver/internal/server"
 	_ "github.com/lib/pq"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 const (
@@ -47,6 +49,18 @@ func TestMain(m *testing.M) {
 
 	if err := waitForPostgres(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "postgres not ready: %v\n", err)
+		_ = dockerCompose(context.Background(), root, "down")
+		os.Exit(1)
+	}
+
+	if err := waitForMinIO(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "minio not ready: %v\n", err)
+		_ = dockerCompose(context.Background(), root, "down")
+		os.Exit(1)
+	}
+
+	if err := initMinIOBucket(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize minio bucket: %v\n", err)
 		_ = dockerCompose(context.Background(), root, "down")
 		os.Exit(1)
 	}
@@ -394,18 +408,16 @@ func buildMetadataJSON(title, description string, difficulty, timeLimit int, mem
 		"time_limit":   timeLimit,
 		"memory_limit": memoryLimit,
 		"tags":         tags,
-		"testcase_bundle": map[string]any{
-			"testcase_groups": []map[string]any{
-				{
-					"ordinal": 0,
-					"name":    "Sample",
-					"points":  100,
-					"testcases": []map[string]any{
-						{
-							"ordinal": 0,
-							"in_key":  "first_in.in",
-							"out_key": "first_out.out",
-						},
+		"testcase_groups": []map[string]any{
+			{
+				"ordinal": 0,
+				"name":    "Sample",
+				"points":  100,
+				"testcases": []map[string]any{
+					{
+						"ordinal": 0,
+						"in_key":  "first_in.in",
+						"out_key": "first_out.out",
 					},
 				},
 			},
@@ -443,6 +455,64 @@ func waitForPostgres(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func waitForMinIO(ctx context.Context) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	url := "http://localhost:9000/minio/health/live"
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			if err != nil {
+				return fmt.Errorf("minio health check failed: %w", err)
+			}
+			return fmt.Errorf("minio health check failed with status")
+		case <-ticker.C:
+		}
+	}
+}
+
+func initMinIOBucket(ctx context.Context) error {
+	minioClient, err := minio.New("localhost:9000", &minio.Options{
+		Creds:  credentials.NewStaticV4("minioadmin", "minioadmin", ""),
+		Secure: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create minio client: %w", err)
+	}
+
+	bucketName := "jjudge"
+	exists, err := minioClient.BucketExists(ctx, bucketName)
+	if err != nil {
+		return fmt.Errorf("failed to check bucket existence: %w", err)
+	}
+
+	if !exists {
+		err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+		if err != nil {
+			// Ignore error if bucket already exists (race condition or stale state)
+			errResp := minio.ToErrorResponse(err)
+			if errResp.Code != "BucketAlreadyOwnedByYou" && errResp.Code != "BucketAlreadyExists" {
+				return fmt.Errorf("failed to create bucket: %w", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func waitForHealth(ctx context.Context, url string) error {
@@ -518,9 +588,11 @@ func startServer() (*server.Server, error) {
 	_ = os.Setenv("DB_PASSWORD", "jjudge")
 	_ = os.Setenv("DB_NAME", "jjudge")
 	_ = os.Setenv("DB_USE_SSL", "false")
+	_ = os.Setenv("MINIO_ENDPOINT", "localhost:9000")
 	_ = os.Setenv("MINIO_ACCESS_KEY", "minioadmin")
 	_ = os.Setenv("MINIO_SECRET_KEY", "minioadmin")
 	_ = os.Setenv("MINIO_BUCKET", "jjudge")
+	_ = os.Setenv("MINIO_USE_SSL", "false")
 	_ = os.Setenv("RABBITMQ_URL", "amqp://jjudge:jjudge@localhost:5672/")
 
 	cfg := config.LoadConfig()
@@ -537,7 +609,7 @@ func startServer() (*server.Server, error) {
 }
 
 func dockerCompose(ctx context.Context, root string, args ...string) error {
-	composeFile := filepath.Join(root, "development", "docker-compose.yml")
+	composeFile := filepath.Join(root, "docker-compose.yml")
 	baseArgs := append([]string{"compose", "-f", composeFile}, args...)
 	cmd := exec.CommandContext(ctx, "docker", baseArgs...)
 	cmd.Stdout = os.Stdout
