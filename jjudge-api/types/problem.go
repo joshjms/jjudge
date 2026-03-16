@@ -86,6 +86,16 @@ type Testcase struct {
 	// Output is the expected output produced by a correct solution.
 	Output string `json:"output" db:"output"`
 
+	// InKey is the object storage key for the input file.
+	InKey string `json:"in_key" db:"in_key"`
+
+	// OutKey is the object storage key for the output file.
+	OutKey string `json:"out_key" db:"out_key"`
+
+	// Hash is the SHA256 hash of the concatenated input and output files.
+	// Used for deduplication and change detection.
+	Hash string `json:"hash" db:"hash"`
+
 	// IsHidden indicates whether this test case is hidden from users.
 	// Hidden test cases are typically used to prevent hard-coded solutions.
 	IsHidden bool `json:"is_hidden" db:"is_hidden"`

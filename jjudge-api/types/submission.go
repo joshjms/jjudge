@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -16,6 +17,10 @@ type Submission struct {
 
 	// UserID identifies the user who made the submission.
 	UserID int `json:"user_id" db:"user_id"`
+
+	// Username is the human-readable name of the user who made the submission.
+	// This field is populated when fetching submissions and is not stored in the submissions table.
+	Username string `json:"username,omitempty" db:"-"`
 
 	// Code is the source code submitted by the user.
 	Code string `json:"code" db:"code"`
@@ -176,4 +181,39 @@ func (v Verdict) String() string {
 
 func (v Verdict) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.String())
+}
+
+var verdictFromString = map[string]Verdict{
+	"PENDING": VerdictPending,
+	"JUDGING": VerdictJudging,
+	"AC":      VerdictAccepted,
+	"WA":      VerdictWrongAnswer,
+	"TLE":     VerdictTimeLimitExceeded,
+	"MLE":     VerdictMemoryLimitExceeded,
+	"RE":      VerdictRuntimeError,
+	"CE":      VerdictCompilationError,
+	"SE":      VerdictSystemError,
+	"IE":      VerdictInternalError,
+	"SKIPPED": VerdictSkipped,
+}
+
+func (v *Verdict) UnmarshalJSON(data []byte) error {
+	// Try string first (e.g. "PENDING")
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if parsed, ok := verdictFromString[s]; ok {
+			*v = parsed
+			return nil
+		}
+		return fmt.Errorf("unknown verdict string: %q", s)
+	}
+
+	// Fall back to numeric (e.g. 0)
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*v = Verdict(n)
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal verdict from %s", string(data))
 }

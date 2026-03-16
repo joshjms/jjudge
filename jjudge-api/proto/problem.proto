@@ -13,17 +13,12 @@ message Problem {
     int32 difficulty = 4;
     int64 time_limit = 5;
     int64 memory_limit = 6;
-    TestcaseBundle testcase_bundle = 7;
     repeated string tags = 8;
     google.protobuf.Timestamp created_at = 9;
     google.protobuf.Timestamp updated_at = 10;
-}
 
-message TestcaseBundle {
-	string object_key = 1;
-	string sha256 = 2;
-	repeated TestcaseGroup testcase_groups = 3;
-	int32 version = 4;
+    reserved 7;
+    reserved "testcase_bundle";
 }
 
 message TestcaseGroup {
