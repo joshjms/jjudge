@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/jjudge-oj/api/types"
 	"github.com/jjudge-oj/worker/internal/lime"
@@ -151,7 +152,7 @@ func (w *Worker) processJobWithPublisher(ctx context.Context, job types.Submissi
 				return w.failWithSystemError(ctx, submission, fmt.Sprintf("execution error: %v", err), publish)
 			}
 
-			log.Printf("worker: testcase %d report: status=%d exitCode=%d cpuTime=%d memory=%d", tc.ID, report.Status, report.ExitCode, report.CPUTime, report.Memory)
+			log.Printf("worker: testcase %d report: status=%s exitCode=%d cpuTime=%d memory=%d", tc.ID, report.Status, report.ExitCode, report.CPUTime, report.Memory)
 
 			// Map report status to verdict
 			tcVerdict := w.mapStatusToVerdict(ctx, report, string(expectedOutput))
@@ -266,7 +267,9 @@ func (w *Worker) mapStatusToVerdict(ctx context.Context, report *lime.Report, ex
 	case lime.STATUS_RUNTIME_ERROR:
 		return types.VerdictRuntimeError
 	case lime.STATUS_OK:
-		ok, err := w.grader.Grade(ctx, report.Stdout, expectedOutput, "token")
+		gradeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		ok, err := w.grader.Grade(gradeCtx, report.Stdout, expectedOutput, "token")
 		if err != nil {
 			log.Printf("worker: grader error: %v", err)
 			return types.VerdictSystemError

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jjudge-oj/worker/config"
@@ -114,6 +115,10 @@ func RunContext(ctx context.Context, req ExecRequest) (ExecResponse, error) {
 	if err != nil {
 		return ExecResponse{}, fmt.Errorf("marshal request: %w", err)
 	}
+
+	timeout := time.Duration(req.WallTimeLimitUs)*time.Microsecond + 10*time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "lime", "run")
 

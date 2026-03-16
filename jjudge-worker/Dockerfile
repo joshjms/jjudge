@@ -26,25 +26,17 @@ FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     uidmap \
-    python3 \
-    g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Create rootfs from the running system
-RUN mkdir -p /rootfs/usr/bin /rootfs/usr/lib /rootfs/usr/local/bin \
-    /rootfs/bin /rootfs/lib /rootfs/lib64 /rootfs/dev \
-    /rootfs/proc /rootfs/sys /rootfs/tmp /rootfs/work \
-    /rootfs/etc \
-    && cp -a /usr/bin/python3 /rootfs/usr/bin/ \
-    && cp -a /usr/bin/g++ /rootfs/usr/bin/ \
-    && cp -a /usr/bin/gcc /rootfs/usr/bin/ 2>/dev/null || true \
-    && cp -a /usr/lib/x86_64-linux-gnu /rootfs/usr/lib/ 2>/dev/null || true \
-    && cp -a /lib/x86_64-linux-gnu /rootfs/lib/ 2>/dev/null || true \
-    && cp -a /lib64/ld-linux-x86-64.so.2 /rootfs/lib64/ 2>/dev/null || true \
-    && echo "root:x:0:0:root:/root:/bin/sh" > /rootfs/etc/passwd \
-    && echo "root:x:0:" > /rootfs/etc/group \
-    && chmod 1777 /rootfs/tmp
+# ubuntu:24.04 already ships with uid/gid 1000 as the 'ubuntu' user.
+# Add subuid/subgid ranges for the ubuntu user so newuidmap/newgidmap work.
+RUN echo 'ubuntu:100000:65536' >> /etc/subuid && \
+    echo 'ubuntu:100000:65536' >> /etc/subgid
+
+# Rootfs is downloaded at container startup via entrypoint.sh.
+RUN mkdir -p /rootfs && chown 1000:1000 /rootfs
 
 WORKDIR /app
 COPY --from=go-builder /out/worker /usr/local/bin/worker
@@ -52,7 +44,10 @@ COPY --from=lime-builder /lime/build/lime /usr/local/bin/lime
 COPY jjudge-worker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Create work directories
-RUN mkdir -p /tmp/judge/submissions /tmp/judge/work /tmp/judge/overlayfs /tmp/judge/rootfs
+# Create work directories owned by uid 1000 (ubuntu)
+RUN mkdir -p /tmp/judge/submissions /tmp/judge/work /tmp/judge/overlayfs /tmp/judge/rootfs \
+    && chown -R 1000:1000 /tmp/judge
+
+USER ubuntu
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

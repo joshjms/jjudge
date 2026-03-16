@@ -1,30 +1,48 @@
 #!/bin/sh
-# Setup cgroup v2 hierarchy for lime.
+# Install rootfs, then set up cgroup v2 hierarchy for lime.
 #
-# Docker containers start with all processes in the cgroup namespace root.
-# cgroup v2's "no internal processes" rule prevents enabling controllers in
-# cgroup.subtree_control while processes live there. We must move them out
-# first, then enable controllers, then create the lime subtree.
+# The worker runs as a non-root user whose systemd session manager has already
+# delegated a cgroup subtree (user.slice/user-1000.slice/user@1000.service/)
+# with all required controllers enabled. We simply create a lime subdirectory
+# within LIME_CGROUP_ROOT — no SYS_ADMIN or privileged container needed.
 
-CGROUP_ROOT=/sys/fs/cgroup
-LIME_CGROUP="${CGROUP_ROOT}/lime"
-PREINIT="${CGROUP_ROOT}/lime.preinit"
+# ── Rootfs installation ──────────────────────────────────────────────────────
+if [ -z "$ROOTFS_IMG_SRC" ]; then
+    echo "entrypoint: ROOTFS_IMG_SRC is not set" >&2
+    exit 1
+fi
 
-# Create a transient holding cgroup and move all root-cgroup processes there.
-mkdir -p "$PREINIT"
-for pid in $(cat "$CGROUP_ROOT/cgroup.procs" 2>/dev/null); do
-    echo "$pid" > "$PREINIT/cgroup.procs" 2>/dev/null || true
-done
+_ROOTFS_DIR="${JUDGE_ROOTFS_DIR:-/rootfs}"
 
-# Root cgroup is now empty — enable the required controllers.
-echo "+cpu +cpuset +memory +pids +io" > "$CGROUP_ROOT/cgroup.subtree_control"
+if [ ! -f "$_ROOTFS_DIR/.installed" ]; then
+    echo "entrypoint: installing rootfs from $ROOTFS_IMG_SRC ..."
+    mkdir -p "$_ROOTFS_DIR"
+    _ROOTFS_TMP="$(mktemp)"
+    if ! curl -fsSL "$ROOTFS_IMG_SRC" -o "$_ROOTFS_TMP"; then
+        echo "entrypoint: failed to download rootfs from $ROOTFS_IMG_SRC" >&2
+        rm -f "$_ROOTFS_TMP"
+        exit 1
+    fi
+    if ! tar -xz --strip-components=1 -C "$_ROOTFS_DIR" < "$_ROOTFS_TMP"; then
+        echo "entrypoint: failed to extract rootfs archive" >&2
+        rm -f "$_ROOTFS_TMP"
+        exit 1
+    fi
+    rm -f "$_ROOTFS_TMP"
+    touch "$_ROOTFS_DIR/.installed"
+    echo "entrypoint: rootfs installed at $_ROOTFS_DIR"
+else
+    echo "entrypoint: rootfs already installed at $_ROOTFS_DIR, skipping"
+fi
 
-# Create the lime subtree and propagate controllers into it.
-mkdir -p "$LIME_CGROUP"
-echo "+cpu +cpuset +memory +pids +io" > "$LIME_CGROUP/cgroup.subtree_control"
-# Move ourselves into the lime cgroup so per-submission child cgroups
-# created under it inherit the enabled controllers.
-echo $$ > "$LIME_CGROUP/cgroup.procs" 2>/dev/null || true
+# ── Cgroup v2 setup ──────────────────────────────────────────────────────────
+if [ -z "$LIME_CGROUP_ROOT" ]; then
+    echo "entrypoint: LIME_CGROUP_ROOT is not set" >&2
+    exit 1
+fi
 
-export LIME_CGROUP_ROOT="$LIME_CGROUP"
+mkdir -p "$LIME_CGROUP_ROOT"
+echo "+cpu +cpuset +memory +pids +io" > "$LIME_CGROUP_ROOT/cgroup.subtree_control"
+echo "entrypoint: lime cgroup ready at $LIME_CGROUP_ROOT"
+
 exec /usr/local/bin/worker "$@"
