@@ -1,0 +1,65 @@
+[
+  {
+    "arguments": [
+      "/bin/cc",
+      "-I",
+      "src/include",
+      "-I",
+      "third_party/include",
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Wextra",
+      "-std=c2x",
+      "-c",
+      "-o",
+      "main.o",
+      "main.c"
+    ],
+    "directory": "/home/joshjms/jjudge-project/lime",
+    "file": "/home/joshjms/jjudge-project/lime/main.c",
+    "output": "/home/joshjms/jjudge-project/lime/main.o"
+  },
+  {
+    "arguments": [
+      "/bin/cc",
+      "-I",
+      "src/include",
+      "-I",
+      "third_party/include",
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Wextra",
+      "-std=c2x",
+      "-c",
+      "-o",
+      "src/run.o",
+      "src/run.c"
+    ],
+    "directory": "/home/joshjms/jjudge-project/lime",
+    "file": "/home/joshjms/jjudge-project/lime/src/run.c",
+    "output": "/home/joshjms/jjudge-project/lime/src/run.o"
+  },
+  {
+    "arguments": [
+      "/bin/cc",
+      "-I",
+      "src/include",
+      "-I",
+      "third_party/include",
+      "-O2",
+      "-g",
+      "-Wall",
+      "-Wextra",
+      "-std=c2x",
+      "-c",
+      "-o",
+      "src/io.o",
+      "src/io.c"
+    ],
+    "directory": "/home/joshjms/jjudge-project/lime",
+    "file": "/home/joshjms/jjudge-project/lime/src/io.c",
+    "output": "/home/joshjms/jjudge-project/lime/src/io.o"
+  }
+]
