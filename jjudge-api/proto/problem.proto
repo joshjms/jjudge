@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package api;
+
+option go_package = "github.com/jjudge-oj/api/proto;jjudgepb";
+
+import "google/protobuf/timestamp.proto";
+
+message Problem {
+    int64 id = 1;
+    string title = 2;
+    string description = 3;
+    int32 difficulty = 4;
+    int64 time_limit = 5;
+    int64 memory_limit = 6;
+    repeated string tags = 8;
+    google.protobuf.Timestamp created_at = 9;
+    google.protobuf.Timestamp updated_at = 10;
+
+    reserved 7;
+    reserved "testcase_bundle";
+}
+
+message TestcaseGroup {
+	int64 id = 1;
+	int32 ordinal = 2;
+	int64 problem_id = 3;
+	string name = 4;
+	repeated Testcase testcases = 5;
+	int32 points = 6;
+}
+
+message Testcase {
+	int64 id = 1;
+	int32 ordinal = 2;
+	int64 testcase_group_id = 3;
+	string input = 4;
+	string output = 5;
+	string in_key = 6;
+	string out_key = 7;
+	bool is_hidden = 8;
+}

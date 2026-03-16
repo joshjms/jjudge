@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package api;
+
+option go_package = "github.com/jjudge-oj/api/proto;jjudgepb";
+
+import "google/protobuf/timestamp.proto";
+import "problem.proto";
+
+message Submission {
+    int64 id = 1;
+    int64 problem_id = 2;
+    int64 user_id = 3;
+    string code = 4;
+    string language = 5;
+    Verdict verdict = 6;
+    int32 score = 7;
+    int64 cpu_time = 8;
+    int64 memory = 9;
+    string message = 10;
+    int32 tests_passed = 11;
+    int32 tests_total = 12;
+    google.protobuf.Timestamp created_at = 13;
+    google.protobuf.Timestamp updated_at = 14;
+    repeated TestcaseResult testcase_results = 15;
+}
+
+message SubmissionJob {
+	Submission submission = 1;
+	Problem problem = 2;
+}
+
+message TestcaseResult {
+	int64 submission_id = 1;
+	int64 testcase_id = 2;
+	Verdict verdict = 3;
+	int64 cpu_time = 4;
+	int64 memory = 5;
+	optional string input = 6;
+	optional string expected_output = 7;
+	optional string actual_output = 8;
+	optional string error_message = 9;
+}
+
+enum Verdict {
+  VERDICT_PENDING = 0;
+  VERDICT_JUDGING = 1;
+  VERDICT_ACCEPTED = 2;
+  VERDICT_WRONG_ANSWER = 3;
+  VERDICT_TIME_LIMIT_EXCEEDED = 4;
+  VERDICT_MEMORY_LIMIT_EXCEEDED = 5;
+  VERDICT_RUNTIME_ERROR = 6;
+  VERDICT_COMPILATION_ERROR = 7;
+  VERDICT_SYSTEM_ERROR = 8;
+  VERDICT_INTERNAL_ERROR = 9;
+  VERDICT_SKIPPED = 10;
+}
