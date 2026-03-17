@@ -8,6 +8,7 @@ SRC := \
 	src/cgroup.c \
 	src/api.c \
 	src/io.c \
+	src/seccomp.c \
 	third_party/cJSON.c
 
 OBJ := $(SRC:.c=.o)

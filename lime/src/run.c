@@ -28,6 +28,7 @@
 
 #include "api.h"
 #include "cgroup.h"
+#include "seccomp.h"
 #include "utils.h"
 #include "io.h"
 
@@ -57,8 +58,11 @@ static void print_usage(const char *prog) {
     fprintf(stderr, "Runs a containerized process.\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Usage:\n");
-    fprintf(stderr, "  %s run\n\n", prog);
-    fprintf(stderr, "You can specify the container configuration via a JSON file passed to stdin. See src/include/api.h for the definition of ExecRequest.\n");
+    fprintf(stderr, "  %s run [--use_seccomp_bpf]\n\n", prog);
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  --use_seccomp_bpf  Apply a seccomp-BPF syscall allowlist filter to the child process.\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "The container configuration is read as JSON from stdin. See src/include/api.h for the ExecRequest definition.\n");
     fprintf(stderr, "\n");
 }
 
@@ -68,22 +72,28 @@ struct child_args {
     int out_fd;
     int err_fd;
     ExecRequest *cfg;
+    int use_seccomp_bpf;
 };
 
 int handle_run(int argc, char **argv) {
     static struct option long_opts[] = {
-        {"help", no_argument, NULL, 0},
+        {"help",            no_argument, NULL, 'h'},
+        {"use_seccomp_bpf", no_argument, NULL, 's'},
         {0, 0, 0, 0},
     };
 
     opterr = 0;
     optind = 2;
+    int use_seccomp_bpf = 0;
     int opt;
     while((opt = getopt_long(argc, argv, "", long_opts, NULL)) != -1) {
         switch(opt) {
-            case 0:
+            case 'h':
                 print_usage(argv[0]);
                 return 0;
+            case 's':
+                use_seccomp_bpf = 1;
+                break;
             case '?':
             default:
                 fprintf(stderr, "Unknown option\n");
@@ -136,6 +146,7 @@ int handle_run(int argc, char **argv) {
         .out_fd = out_pipe[1],
         .err_fd = err_pipe[1],
         .cfg = req,
+        .use_seccomp_bpf = use_seccomp_bpf,
     };
 
     int flags = SIGCHLD | CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWTIME;
@@ -842,6 +853,7 @@ static int child_fn(void *arg) {
 
     int sync_fd = args->sync_fd;
     ExecRequest *cfg = args->cfg;
+    int use_seccomp_bpf = args->use_seccomp_bpf;
 
     // set mount propagation to private
     if(mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
@@ -1040,6 +1052,12 @@ static int child_fn(void *arg) {
 
     if(drop_all_caps() != 0) {
         fprintf(stderr, "Failed to drop capabilities\n");
+        write_byte(sync_fd, 'X');
+        _exit(1);
+    }
+
+    if (use_seccomp_bpf && apply_seccomp_filter() != 0) {
+        fprintf(stderr, "Failed to apply seccomp filter\n");
         write_byte(sync_fd, 'X');
         _exit(1);
     }
