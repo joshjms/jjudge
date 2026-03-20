@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.local
+
+# Go
+*.exe
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.log
+*.tmp
+
+# The GOAT Claude
+.claude

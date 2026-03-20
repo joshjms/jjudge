@@ -1,0 +1,201 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jjudge-postgres
+    environment:
+      POSTGRES_USER: jjudge
+      POSTGRES_PASSWORD: jjudge
+      POSTGRES_DB: jjudge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jjudge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jjudge
+
+  minio:
+    image: minio/minio:latest
+    container_name: jjudge-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - jjudge
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: jjudge-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: jjudge
+      RABBITMQ_DEFAULT_PASS: jjudge
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - jjudge
+
+  server:
+    build:
+      context: .
+      dockerfile: apiserver/Dockerfile
+    container_name: jjudge-apiserver
+    entrypoint: ["/bin/sh", "-c", "/usr/local/bin/apiserver migrate up && /usr/local/bin/apiserver server"]
+    environment:
+      ENV: dev
+      SERVER_PORT: "8080"
+      JWT_SECRET: "dev-secret"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: jjudge
+      DB_PASSWORD: jjudge
+      DB_NAME: jjudge
+      DB_USE_SSL: "false"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: jjudge
+      MINIO_USE_SSL: "false"
+      RABBITMQ_URL: amqp://jjudge:jjudge@rabbitmq:5672/
+      JJUDGE_ADMIN_USER: ${JJUDGE_ADMIN_USER:-admin}
+      JJUDGE_ADMIN_PASSWORD: ${JJUDGE_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - jjudge
+
+  grader:
+    build:
+      context: ./grader
+      dockerfile: Dockerfile
+    container_name: jjudge-grader
+    environment:
+      ENV: dev
+      SERVER_PORT: "50051"
+    ports:
+      - "50051:50051"
+    networks:
+      - jjudge
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: jjudge-worker
+    privileged: true
+    cgroup: host
+    cgroup_parent: lime.slice
+    environment:
+      ENV: dev
+      GRADER_ADDR: grader:50051
+      JUDGE_SUBMISSIONS_DIR: /tmp/judge/submissions
+      JUDGE_WORK_ROOT: /tmp/judge/work
+      JUDGE_OVERLAYFS_DIR: /tmp/judge/overlayfs
+      JUDGE_ROOTFS_DIR: /rootfs
+      JUDGE_CPUS: "0-1"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: jjudge
+      MINIO_USE_SSL: "false"
+      RABBITMQ_URL: amqp://jjudge:jjudge@rabbitmq:5672/
+      RABBITMQ_QUEUE: submissions
+      ROOTFS_IMG_SRC: https://github.com/jjudge-oj/worker/blob/main/rootfs/ci_rootfs.tar.gz?raw=true
+      LIME_CGROUP_ROOT: /sys/fs/cgroup/lime.slice
+    depends_on:
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      grader:
+        condition: service_started
+    networks:
+      - jjudge
+
+  worker-contest:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: jjudge-worker-contest
+    privileged: true
+    cgroup: host
+    cgroup_parent: lime.slice
+    environment:
+      ENV: dev
+      GRADER_ADDR: grader:50051
+      JUDGE_SUBMISSIONS_DIR: /tmp/judge/submissions-contest
+      JUDGE_WORK_ROOT: /tmp/judge/work-contest
+      JUDGE_OVERLAYFS_DIR: /tmp/judge/overlayfs-contest
+      JUDGE_ROOTFS_DIR: /rootfs
+      JUDGE_CPUS: "2-3"
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: jjudge
+      MINIO_USE_SSL: "false"
+      RABBITMQ_URL: amqp://jjudge:jjudge@rabbitmq:5672/
+      RABBITMQ_QUEUE: contest-submissions
+      ROOTFS_IMG_SRC: https://github.com/jjudge-oj/worker/blob/main/rootfs/ci_rootfs.tar.gz?raw=true
+      LIME_CGROUP_ROOT: /sys/fs/cgroup/lime.slice
+    depends_on:
+      minio:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      grader:
+        condition: service_started
+    networks:
+      - jjudge
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080}
+    container_name: jjudge-frontend
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-http://server:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+    networks:
+      - jjudge
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  jjudge:
+    driver: bridge
