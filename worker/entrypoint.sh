@@ -7,14 +7,13 @@
 # within LIME_CGROUP_ROOT — no SYS_ADMIN or privileged container needed.
 
 # ── Rootfs installation ──────────────────────────────────────────────────────
-if [ -z "$ROOTFS_IMG_SRC" ]; then
-    echo "entrypoint: ROOTFS_IMG_SRC is not set" >&2
-    exit 1
-fi
-
 _ROOTFS_DIR="${JUDGE_ROOTFS_DIR:-/rootfs}"
 
 if [ ! -f "$_ROOTFS_DIR/.installed" ]; then
+    if [ -z "$ROOTFS_IMG_SRC" ]; then
+        echo "entrypoint: rootfs not found at $_ROOTFS_DIR and ROOTFS_IMG_SRC is not set" >&2
+        exit 1
+    fi
     echo "entrypoint: installing rootfs from $ROOTFS_IMG_SRC ..."
     mkdir -p "$_ROOTFS_DIR"
     _ROOTFS_TMP="$(mktemp)"

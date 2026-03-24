@@ -23,6 +23,25 @@ WORKDIR /lime
 COPY lime/ ./
 RUN mkdir -p build && make
 
+FROM ubuntu:24.04 AS rootfs-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    debootstrap \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN debootstrap \
+        --variant=minbase \
+        --include=gcc,g++,python3,libstdc++-13-dev,libc6-dev,binutils \
+        noble \
+        /rootfs \
+        http://archive.ubuntu.com/ubuntu
+
+# processor.go calls the compiler as /usr/local/bin/g++ inside the sandbox.
+RUN ln -sf /usr/bin/g++ /rootfs/usr/local/bin/g++ && \
+    ln -sf /usr/bin/gcc /rootfs/usr/local/bin/gcc
+
+RUN touch /rootfs/.installed
+
 # Runtime image
 FROM ubuntu:24.04
 
@@ -37,8 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN echo 'ubuntu:100000:65536' >> /etc/subuid && \
     echo 'ubuntu:100000:65536' >> /etc/subgid
 
-# Rootfs is downloaded at container startup via entrypoint.sh.
-RUN mkdir -p /rootfs && chown 1000:1000 /rootfs
+# Bake the rootfs into the image so startup requires no download.
+COPY --from=rootfs-builder /rootfs /rootfs
 
 WORKDIR /app
 COPY --from=go-builder /out/worker /usr/local/bin/worker
