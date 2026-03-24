@@ -20,6 +20,27 @@ const (
 	defaultMaxProcs        = 1
 )
 
+// langSpec describes how to write, compile, and execute a submission for a
+// given language. CompileArgs is nil for interpreted languages.
+type langSpec struct {
+	Filename    string   // source file written to the work directory
+	CompileArgs []string // compile command run inside the sandbox; nil = no compilation
+	ExecArgs    []string // execution command run inside the sandbox
+}
+
+var languages = map[string]langSpec{
+	"cpp": {
+		Filename:    "solution.cpp",
+		CompileArgs: []string{"/usr/bin/g++", "-std=c++20", "-O2", "-o", "/work/solution", "/work/solution.cpp"},
+		ExecArgs:    []string{"/work/solution"},
+	},
+	"python": {
+		Filename:    "solution.py",
+		CompileArgs: nil,
+		ExecArgs:    []string{"/usr/bin/python3", "/work/solution.py"},
+	},
+}
+
 type publishFunc func(ctx context.Context, submission types.Submission) error
 
 func (w *Worker) processJob(ctx context.Context, job types.SubmissionJob) error {
@@ -72,22 +93,29 @@ func (w *Worker) processJobWithPublisher(ctx context.Context, job types.Submissi
 	defer os.RemoveAll(workDir)
 
 	// Write source code
-	sourceFile, execArgs, err := w.writeSource(workDir, submission)
-	if err != nil {
+	spec, ok := languages[submission.Language]
+	if !ok {
+		return w.failWithSystemError(ctx, submission, fmt.Sprintf("unsupported language: %s", submission.Language), publish)
+	}
+
+	// Write source file
+	filePath := filepath.Join(workDir, spec.Filename)
+	if err := os.WriteFile(filePath, []byte(submission.Code), 0644); err != nil {
 		return w.failWithSystemError(ctx, submission, fmt.Sprintf("failed to write source: %v", err), publish)
 	}
 
-	// Compile if needed
-	if submission.Language == "cpp" {
-		compiled, compileErr := w.compile(ctx, workDir, sourceFile, submission, publish)
+	// Compile if the language requires it
+	if spec.CompileArgs != nil {
+		compiled, compileErr := w.compile(ctx, workDir, spec.CompileArgs, submission, publish)
 		if compileErr != nil {
 			return w.failWithSystemError(ctx, submission, fmt.Sprintf("compilation system error: %v", compileErr), publish)
 		}
 		if !compiled {
 			return nil // CE already published
 		}
-		execArgs = []string{"/work/solution"}
 	}
+
+	execArgs := spec.ExecArgs
 
 	// Sort testcase groups by ordinal
 	groups := make([]types.TestcaseGroup, len(problem.TestcaseGroups))
@@ -217,32 +245,7 @@ func (w *Worker) processJobWithPublisher(ctx context.Context, job types.Submissi
 	return publish(ctx, submission)
 }
 
-func (w *Worker) writeSource(workDir string, submission types.Submission) (string, []string, error) {
-	var filename string
-	var args []string
-
-	switch submission.Language {
-	case "cpp":
-		filename = "solution.cpp"
-		args = []string{"/work/solution"} // will be set after compilation
-	case "python":
-		filename = "solution.py"
-		args = []string{"python3", "/work/solution.py"}
-	default:
-		return "", nil, fmt.Errorf("unsupported language: %s", submission.Language)
-	}
-
-	filePath := filepath.Join(workDir, filename)
-	if err := os.WriteFile(filePath, []byte(submission.Code), 0644); err != nil {
-		return "", nil, err
-	}
-
-	return filename, args, nil
-}
-
-func (w *Worker) compile(ctx context.Context, workDir, sourceFile string, submission types.Submission, publish publishFunc) (bool, error) {
-	args := []string{"/usr/local/bin/g++", "-std=c++20", "-O2", "-o", "/work/solution", "/work/" + sourceFile}
-
+func (w *Worker) compile(ctx context.Context, workDir string, args []string, submission types.Submission, publish publishFunc) (bool, error) {
 	report, err := lime.Run(ctx, w.cfg, w.slotPool, workDir, "", args, "", compilationTimeLimitUs, compilationMemoryLimit, compilationMaxProcs, false)
 	if err != nil {
 		return false, err

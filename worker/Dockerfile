@@ -36,10 +36,6 @@ RUN debootstrap \
         /rootfs \
         http://archive.ubuntu.com/ubuntu
 
-# processor.go calls the compiler as /usr/local/bin/g++ inside the sandbox.
-RUN ln -sf /usr/bin/g++ /rootfs/usr/local/bin/g++ && \
-    ln -sf /usr/bin/gcc /rootfs/usr/local/bin/gcc
-
 RUN touch /rootfs/.installed
 
 # Runtime image
