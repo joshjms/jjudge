@@ -1,0 +1,13 @@
+[Unit]
+Description=JJudge – lime cgroup slice setup
+Documentation=https://github.com/jjudge-oj/jjudge
+# Must complete before the worker attempts to use the slice.
+Before=jjudge-worker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/jjudge-cgroup-setup.sh
+
+[Install]
+WantedBy=multi-user.target

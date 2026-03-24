@@ -1,0 +1,23 @@
+#cloud-config
+# Minimal cloud-init config used only during the Packer build.
+# Sets a temporary password so Packer can connect over SSH.
+# The final image does NOT have password auth enabled.
+
+users:
+  - name: ubuntu
+    groups: sudo
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+
+chpasswd:
+  users:
+    - name: ubuntu
+      password: packer
+  expire: false
+
+ssh_pwauth: true
+
+# Disable automatic upgrades so provisioning is faster / deterministic.
+package_update: false
+package_upgrade: false

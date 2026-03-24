@@ -1,0 +1,31 @@
+[Unit]
+Description=JJudge – submission worker
+Documentation=https://github.com/jjudge-oj/jjudge
+After=network-online.target jjudge-cgroup.service
+Wants=network-online.target
+Requires=jjudge-cgroup.service
+
+[Service]
+User=ubuntu
+Group=ubuntu
+
+# Load configuration from /etc/jjudge/worker.env.
+# Copy worker.env.example to worker.env and fill in the required values.
+EnvironmentFile=/etc/jjudge/worker.env
+
+# The rootfs is pre-installed in the image; skip the download step.
+Environment=JUDGE_ROOTFS_DIR=/rootfs
+
+# The entrypoint checks for /rootfs/.installed before downloading, so it
+# will skip the download and proceed directly to cgroup setup + exec.
+ExecStart=/usr/local/bin/entrypoint.sh
+
+Restart=on-failure
+RestartSec=5s
+
+# Give the process access to the lime.slice subtree that jjudge-cgroup.service
+# created and chown-ed to uid 1000.
+# No additional capabilities are needed — lime uses user namespaces.
+
+[Install]
+WantedBy=multi-user.target
