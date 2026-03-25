@@ -74,6 +74,8 @@ int apply_seccomp_filter(void) {
         ALLOW_SYSCALL(__NR_fchmod),
         ALLOW_SYSCALL(__NR_fchmodat),
         ALLOW_SYSCALL(__NR_sendfile),
+        ALLOW_SYSCALL(__NR_chdir),
+        ALLOW_SYSCALL(__NR_umask),
 
         // Memory management
         ALLOW_SYSCALL(__NR_brk),
@@ -110,6 +112,9 @@ int apply_seccomp_filter(void) {
         ALLOW_SYSCALL(__NR_setpgid),
         ALLOW_SYSCALL(__NR_setsid),
         ALLOW_SYSCALL(__NR_getsid),
+        ALLOW_SYSCALL(__NR_getgroups),
+        ALLOW_SYSCALL(__NR_getresuid),
+        ALLOW_SYSCALL(__NR_getresgid),
 
         ALLOW_SYSCALL(__NR_set_tid_address),
         ALLOW_SYSCALL(__NR_set_robust_list),
@@ -139,10 +144,11 @@ int apply_seccomp_filter(void) {
         ALLOW_SYSCALL(__NR_time),
         ALLOW_SYSCALL(__NR_nanosleep),
 
-        
+        ALLOW_SYSCALL(__NR_prctl),
         ALLOW_SYSCALL(__NR_uname),
         ALLOW_SYSCALL(__NR_sysinfo),
         ALLOW_SYSCALL(__NR_getrlimit),
+        ALLOW_SYSCALL(__NR_setrlimit),
         ALLOW_SYSCALL(__NR_prlimit64),
 
         ALLOW_SYSCALL(__NR_getrandom),
@@ -159,12 +165,33 @@ int apply_seccomp_filter(void) {
 
         ALLOW_SYSCALL(__NR_sched_yield),
         ALLOW_SYSCALL(__NR_sched_getaffinity),
+        ALLOW_SYSCALL(__NR_sched_getscheduler),
+        ALLOW_SYSCALL(__NR_sched_getparam),
 
         ALLOW_SYSCALL(__NR_eventfd),
         ALLOW_SYSCALL(__NR_eventfd2),
         ALLOW_SYSCALL(__NR_timerfd_create),
         ALLOW_SYSCALL(__NR_timerfd_settime),
         ALLOW_SYSCALL(__NR_timerfd_gettime),
+
+        // Sockets — Python import machinery touches these even without
+        // explicit networking code (e.g. ssl, hashlib, locale, site.py)
+        ALLOW_SYSCALL(__NR_socket),
+        ALLOW_SYSCALL(__NR_connect),
+        ALLOW_SYSCALL(__NR_bind),
+        ALLOW_SYSCALL(__NR_listen),
+        ALLOW_SYSCALL(__NR_accept),
+        ALLOW_SYSCALL(__NR_accept4),
+        ALLOW_SYSCALL(__NR_shutdown),
+        ALLOW_SYSCALL(__NR_socketpair),
+        ALLOW_SYSCALL(__NR_getsockname),
+        ALLOW_SYSCALL(__NR_getpeername),
+        ALLOW_SYSCALL(__NR_getsockopt),
+        ALLOW_SYSCALL(__NR_setsockopt),
+        ALLOW_SYSCALL(__NR_sendto),
+        ALLOW_SYSCALL(__NR_sendmsg),
+        ALLOW_SYSCALL(__NR_recvfrom),
+        ALLOW_SYSCALL(__NR_recvmsg),
 
         // Newer syscalls
 #ifdef __NR_clone3

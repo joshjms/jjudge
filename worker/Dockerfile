@@ -61,10 +61,6 @@ COPY --from=lime-builder /lime/build/lime /usr/local/bin/lime
 COPY worker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Create work directories owned by uid 1000 (ubuntu)
-RUN mkdir -p /tmp/judge/submissions /tmp/judge/work /tmp/judge/overlayfs /tmp/judge/rootfs \
-    && chown -R 1000:1000 /tmp/judge
-
-USER ubuntu
+RUN mkdir -p /tmp/judge/submissions /tmp/judge/work /tmp/judge/overlayfs /tmp/judge/rootfs
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

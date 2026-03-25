@@ -12,10 +12,13 @@ import (
 type Slot struct {
 	CPUs string
 	Mems string
+	UID  int
+	GID  int
 }
 
 type SlotPool struct {
-	ch chan Slot
+	ch      chan Slot
+	uidBase int
 }
 
 type SlotPoolOption func(*SlotPool)
@@ -31,6 +34,15 @@ func NewSlotPool(opts ...SlotPoolOption) *SlotPool {
 	}
 
 	return sp
+}
+
+// WithSlotUIDs sets the base host UID/GID for per-slot isolation.
+// Slot i is assigned UID/GID (base + i). A base of 0 disables isolation
+// (all slots get UID/GID 0).
+func WithSlotUIDs(base int) SlotPoolOption {
+	return func(sp *SlotPool) {
+		sp.uidBase = base
+	}
 }
 
 // WithCPUs configures the slot pool from a CPU set string (e.g. "0-3", "0,2,4").
@@ -55,9 +67,16 @@ func WithCPUs(cpuSet string) SlotPoolOption {
 			if len(cpus) > 0 {
 				cpu = cpus[i]
 			}
+			var uid, gid int
+			if sp.uidBase != 0 {
+				uid = sp.uidBase + i
+				gid = sp.uidBase + i
+			}
 			sp.ch <- Slot{
 				CPUs: cpu,
 				Mems: mems[i%len(mems)],
+				UID:  uid,
+				GID:  gid,
 			}
 		}
 	}
@@ -86,6 +105,10 @@ func (sp *SlotPool) Allocate(ctx context.Context) (*Allocation, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+func (a *Allocation) Slot() Slot {
+	return a.slot
 }
 
 func (a *Allocation) Release() {

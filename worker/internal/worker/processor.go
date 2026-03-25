@@ -180,7 +180,7 @@ func (w *Worker) processJobWithPublisher(ctx context.Context, job types.Submissi
 				return w.failWithSystemError(ctx, submission, fmt.Sprintf("execution error: %v", err), publish)
 			}
 
-			log.Printf("worker: testcase %d report: status=%s exitCode=%d cpuTime=%d memory=%d", tc.ID, report.Status, report.ExitCode, report.CPUTime, report.Memory)
+			log.Printf("worker: testcase %d report: status=%s exitCode=%d signal=%d cpuTime=%d memory=%d stderr=%q", tc.ID, report.Status, report.ExitCode, report.Signal, report.CPUTime, report.Memory, report.Stderr)
 
 			// Map report status to verdict
 			tcVerdict := w.mapStatusToVerdict(ctx, report, string(expectedOutput))

@@ -32,6 +32,8 @@ type ExecRequest struct {
 	RootfsPath       string   `json:"rootfs_path"`
 	BindMounts       []string `json:"bind_mounts"`
 	UseOverlayfs     bool     `json:"use_overlayfs"`
+	HostUID          uint32   `json:"host_uid"`
+	HostGID          uint32   `json:"host_gid"`
 	UseSeccompBPF    bool     `json:"-"` // passed as CLI flag, not JSON
 }
 
@@ -83,6 +85,13 @@ func Run(ctx context.Context, runtimeCfg *config.Config, sp *SlotPool, workDir, 
 
 	wallTimeUs := timeLimitUs * 2
 
+	if allocation.slot.UID != 0 {
+		if err := os.Chown(absWorkDir, allocation.slot.UID, allocation.slot.GID); err != nil {
+			return nil, fmt.Errorf("chown work dir to slot uid: %w", err)
+		}
+		defer os.Chown(absWorkDir, 0, 0)
+	}
+
 	req := ExecRequest{
 		ID:               uuid.NewString(),
 		Args:             args,
@@ -100,6 +109,8 @@ func Run(ctx context.Context, runtimeCfg *config.Config, sp *SlotPool, workDir, 
 		RootfsPath:       absRootfs,
 		BindMounts:       []string{fmt.Sprintf("%s:/work", absWorkDir)},
 		UseOverlayfs:     true,
+		HostUID:          uint32(allocation.slot.UID),
+		HostGID:          uint32(allocation.slot.GID),
 		UseSeccompBPF:    useSeccompBPF,
 	}
 

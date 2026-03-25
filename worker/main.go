@@ -60,7 +60,7 @@ func main() {
 	defer graderClient.Close()
 
 	// Init slot pool
-	slotPool := lime.NewSlotPool(lime.WithCPUs(cfg.Judge.CPUs))
+	slotPool := lime.NewSlotPool(lime.WithSlotUIDs(100000), lime.WithCPUs(cfg.Judge.CPUs))
 
 	// Create and start worker
 	w := worker.New(cfg, mqWrapper, graderClient, blobStorage, tc, slotPool)

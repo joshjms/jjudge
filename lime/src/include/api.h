@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/types.h>
 
 typedef struct {
     char *id;
@@ -33,6 +34,9 @@ typedef struct {
     size_t bind_mounts_c;
 
     int use_overlayfs;
+
+    uid_t host_uid;
+    gid_t host_gid;
 } ExecRequest;
 
 typedef struct {

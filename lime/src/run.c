@@ -39,7 +39,7 @@ static const int MB = 1048576;
 
 static ExecRequest* read_exec_request_from_stdin();
 static ExecRequest* parse_exec_request_from_json(cJSON *json);
-static int setup_uid_gid_maps(pid_t pid);
+static int setup_uid_gid_maps(pid_t pid, uid_t host_uid, gid_t host_gid);
 static int waitpid_with_timeout(pid_t pid, int *exit_code, int *signal, uint64_t *wall_time, uint64_t timeout_us);
 static int create_response_json(const ExecResponse *resp, char **out_json);
 
@@ -107,6 +107,27 @@ int handle_run(int argc, char **argv) {
         return 1;
     }
 
+    // Create /tmp/lime/<id> in the parent while still running as real root,
+    // before clone() drops us into the user namespace as host_uid.
+    if(create_directory_if_not_exists("/tmp/lime") != 0) {
+        perror("create_directory_if_not_exists /tmp/lime");
+        free_exec_request(req);
+        return 1;
+    }
+    char *ctr_dir = join_paths("/tmp/lime", req->id);
+    if(!ctr_dir) {
+        fprintf(stderr, "Failed to allocate ctr_dir\n");
+        free_exec_request(req);
+        return 1;
+    }
+    if(create_directory_if_not_exists(ctr_dir) != 0) {
+        perror("create_directory_if_not_exists ctr_dir");
+        free(ctr_dir);
+        free_exec_request(req);
+        return 1;
+    }
+    free(ctr_dir);
+
     void *stack = malloc(CHILD_STACK_SIZE);
     if (!stack) {
         fprintf(stderr, "Failed to allocate stack for child\n");
@@ -168,7 +189,7 @@ int handle_run(int argc, char **argv) {
     close(err_pipe[1]);
 
     // setup uid/gid maps
-    if(setup_uid_gid_maps(child_pid) != 0) {
+    if(setup_uid_gid_maps(child_pid, req->host_uid, req->host_gid) != 0) {
         fprintf(stderr, "Failed to setup uid/gid maps\n");
         kill(child_pid, SIGKILL);
         close(sv[0]);
@@ -644,13 +665,29 @@ static ExecRequest* parse_exec_request_from_json(cJSON *json) {
     }
     req->use_overlayfs = cJSON_IsTrue(use_overlayfs) ? 1 : 0;
 
+    cJSON *host_uid = cJSON_GetObjectItemCaseSensitive(json, "host_uid");
+    if(!cJSON_IsNumber(host_uid)) {
+        fprintf(stderr, "ExecRequest.host_uid is not a number\n");
+        free_exec_request(req);
+        return NULL;
+    }
+    req->host_uid = (uid_t)cJSON_GetNumberValue(host_uid);
+
+    cJSON *host_gid = cJSON_GetObjectItemCaseSensitive(json, "host_gid");
+    if(!cJSON_IsNumber(host_gid)) {
+        fprintf(stderr, "ExecRequest.host_gid is not a number\n");
+        free_exec_request(req);
+        return NULL;
+    }
+    req->host_gid = (gid_t)cJSON_GetNumberValue(host_gid);
+
     return req;
 }
 
-static int setup_uid_gid_maps(pid_t pid) {
+static int setup_uid_gid_maps(pid_t pid, uid_t host_uid, gid_t host_gid) {
     char pid_s[32];
     snprintf(pid_s, sizeof(pid_s), "%d", pid);
-    
+
     char *path = join_paths(join_paths("/proc", pid_s), "setgroups");
     if(!path) {
         fprintf(stderr, "Failed to allocate path for setgroups\n");
@@ -659,37 +696,57 @@ static int setup_uid_gid_maps(pid_t pid) {
     write_to_file(path, "deny");
     free(path);
 
-    char ruid_s[32];
-    snprintf(ruid_s, sizeof(ruid_s), "%d", getuid());
-    char rgid_s[32];
-    snprintf(rgid_s, sizeof(rgid_s), "%d", getgid());
+    /* If host_uid/host_gid are 0, fall back to the caller's own uid/gid */
+    if(host_uid == 0) host_uid = getuid();
+    if(host_gid == 0) host_gid = getgid();
 
-    /* Set 0 -> ruid */
+    char map_buf[64];
 
-    char *set_uid_map_argv[] = {
-        "newuidmap",
-        pid_s,
-        "0",
-        ruid_s,
-        "1",
-        NULL
-    };
-    if(run_wait(set_uid_map_argv) != 0) {
-        fprintf(stderr, "Failed to run newuidmap\n");
-        return -1;
-    }
+    if(getuid() == 0) {
+        /* Running as root: write uid_map/gid_map directly */
+        char *uid_map_path = join_paths(join_paths("/proc", pid_s), "uid_map");
+        if(!uid_map_path) return -1;
+        snprintf(map_buf, sizeof(map_buf), "0 %u 1", host_uid);
+        write_to_file(uid_map_path, map_buf);
+        free(uid_map_path);
 
-    char *set_gid_map_argv[] = {
-        "newgidmap",
-        pid_s,
-        "0",
-        rgid_s,
-        "1",
-        NULL
-    };
-    if(run_wait(set_gid_map_argv) != 0) {
-        fprintf(stderr, "Failed to run newgidmap\n");
-        return -1;
+        char *gid_map_path = join_paths(join_paths("/proc", pid_s), "gid_map");
+        if(!gid_map_path) return -1;
+        snprintf(map_buf, sizeof(map_buf), "0 %u 1", host_gid);
+        write_to_file(gid_map_path, map_buf);
+        free(gid_map_path);
+    } else {
+        /* Unprivileged: use newuidmap/newgidmap (requires /etc/subuid entries) */
+        char ruid_s[32];
+        snprintf(ruid_s, sizeof(ruid_s), "%u", host_uid);
+        char rgid_s[32];
+        snprintf(rgid_s, sizeof(rgid_s), "%u", host_gid);
+
+        char *set_uid_map_argv[] = {
+            "newuidmap",
+            pid_s,
+            "0",
+            ruid_s,
+            "1",
+            NULL
+        };
+        if(run_wait(set_uid_map_argv) != 0) {
+            fprintf(stderr, "Failed to run newuidmap\n");
+            return -1;
+        }
+
+        char *set_gid_map_argv[] = {
+            "newgidmap",
+            pid_s,
+            "0",
+            rgid_s,
+            "1",
+            NULL
+        };
+        if(run_wait(set_gid_map_argv) != 0) {
+            fprintf(stderr, "Failed to run newgidmap\n");
+            return -1;
+        }
     }
 
     return 0;
@@ -885,20 +942,6 @@ static int child_fn(void *arg) {
     char *dir = join_paths("/tmp/lime", cfg->id);
     if(!dir) {
         perror("join_paths");
-        write_byte(sync_fd, 'X');
-        _exit(1);
-    }
-
-    if(create_directory_if_not_exists("/tmp/lime") != 0) {
-        perror("create_directory_if_not_exists /tmp/lime");
-        free(dir);
-        write_byte(sync_fd, 'X');
-        _exit(1);
-    }
-
-    if(create_directory_if_not_exists(dir) != 0) {
-        perror("create_directory_if_not_exists ctr dir");
-        free(dir);
         write_byte(sync_fd, 'X');
         _exit(1);
     }
@@ -1193,7 +1236,7 @@ static int setup_rootfs_with_overlayfs(const ExecRequest *cfg, const char *ctr_d
     }
 
     char mount_data[PATH_MAX * 3 + 64];
-    snprintf(mount_data, sizeof(mount_data), "lowerdir=%s,upperdir=%s,workdir=%s,userxattr", cfg->rootfs_path, upper_dir, work_dir);
+    snprintf(mount_data, sizeof(mount_data), "lowerdir=%s,upperdir=%s,workdir=%s,userxattr,xino=off", cfg->rootfs_path, upper_dir, work_dir);
     if(mount("overlay", root_path, "overlay", 0, mount_data) != 0) {
         fprintf(stderr, "Failed to mount overlayfs at %s: %m\n", root_path);
         free(work_dir);
@@ -1301,6 +1344,32 @@ static int setup_rootfs_with_overlayfs(const ExecRequest *cfg, const char *ctr_d
         free(dev_dst);
     }
     free(dev_path);
+
+    char *tmp_path = join_paths(root_path, "tmp");
+    if(!tmp_path) {
+        fprintf(stderr, "Failed to allocate tmp_path\n");
+        free(work_dir);
+        free(upper_dir);
+        free(root_path);
+        return -1;
+    }
+    if(create_directory_if_not_exists(tmp_path) != 0) {
+        fprintf(stderr, "Failed to create tmp directory %s\n", tmp_path);
+        free(tmp_path);
+        free(work_dir);
+        free(upper_dir);
+        free(root_path);
+        return -1;
+    }
+    if(mount("tmpfs", tmp_path, "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") != 0) {
+        fprintf(stderr, "Failed to mount tmpfs at %s: %m\n", tmp_path);
+        free(tmp_path);
+        free(work_dir);
+        free(upper_dir);
+        free(root_path);
+        return -1;
+    }
+    free(tmp_path);
 
     for(size_t i = 0; i < cfg->bind_mounts_c; i++) {
         char *bind = cfg->bind_mounts[i];
