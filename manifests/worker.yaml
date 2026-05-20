@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: jjudge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+      queue: default
+  template:
+    metadata:
+      labels:
+        app: worker
+        queue: default
+    spec:
+      hostPID: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - worker
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: worker
+          image: jjudge/worker:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: ENV
+              value: dev
+            - name: GRADER_ADDR
+              value: grader:50051
+            - name: JUDGE_SUBMISSIONS_DIR
+              value: /tmp/judge/submissions
+            - name: JUDGE_WORK_ROOT
+              value: /tmp/judge/work
+            - name: JUDGE_OVERLAYFS_DIR
+              value: /tmp/judge/overlayfs
+            - name: JUDGE_ROOTFS_DIR
+              value: /rootfs
+            - name: JUDGE_CPUS
+              value: "0-1"
+            - name: MINIO_ENDPOINT
+              value: minio:9000
+            - name: MINIO_BUCKET
+              value: jjudge
+            - name: MINIO_USE_SSL
+              value: "false"
+            - name: RABBITMQ_QUEUE
+              value: submissions
+            - name: ROOTFS_IMG_SRC
+              value: https://github.com/jjudge-oj/worker/blob/main/rootfs/ci_rootfs.tar.gz?raw=true
+            - name: LIME_CGROUP_ROOT
+              value: /sys/fs/cgroup/lime.slice
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_SECRET_KEY
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_URL
+          volumeMounts:
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+            - name: judge-tmp
+              mountPath: /tmp/judge
+      volumes:
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: judge-tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-contest
+  namespace: jjudge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+      queue: contest
+  template:
+    metadata:
+      labels:
+        app: worker
+        queue: contest
+    spec:
+      hostPID: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - worker
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: worker
+          image: jjudge/worker:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+          env:
+            - name: ENV
+              value: dev
+            - name: GRADER_ADDR
+              value: grader:50051
+            - name: JUDGE_SUBMISSIONS_DIR
+              value: /tmp/judge/submissions-contest
+            - name: JUDGE_WORK_ROOT
+              value: /tmp/judge/work-contest
+            - name: JUDGE_OVERLAYFS_DIR
+              value: /tmp/judge/overlayfs-contest
+            - name: JUDGE_ROOTFS_DIR
+              value: /rootfs
+            - name: JUDGE_CPUS
+              value: "2-3"
+            - name: MINIO_ENDPOINT
+              value: minio:9000
+            - name: MINIO_BUCKET
+              value: jjudge
+            - name: MINIO_USE_SSL
+              value: "false"
+            - name: RABBITMQ_QUEUE
+              value: contest-submissions
+            - name: ROOTFS_IMG_SRC
+              value: https://github.com/jjudge-oj/worker/blob/main/rootfs/ci_rootfs.tar.gz?raw=true
+            - name: LIME_CGROUP_ROOT
+              value: /sys/fs/cgroup/lime.slice
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: MINIO_SECRET_KEY
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_URL
+          volumeMounts:
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+            - name: judge-tmp
+              mountPath: /tmp/judge
+      volumes:
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: judge-tmp
+          emptyDir: {}

@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: grader
+  namespace: jjudge
+spec:
+  selector:
+    app: grader
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grader
+  namespace: jjudge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grader
+  template:
+    metadata:
+      labels:
+        app: grader
+    spec:
+      containers:
+        - name: grader
+          image: jjudge/grader:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+              name: grpc
+          env:
+            - name: ENV
+              value: dev
+            - name: SERVER_PORT
+              value: "50051"
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 20
+            periodSeconds: 30
